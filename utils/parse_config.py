@@ -1,7 +1,7 @@
 # 解析yolov3的cfg文件，并将每个块存储为dict。块的属性及其值作为键值对存储在字典中。
 # 当我们解析cfg时，我们会继续将这些由block代码中的变量表示的dicts附加到列表中blocks。我们的函数将返回此块。
 def parse_model_config(cfgfile_path):
-    file = open(cfgfile, 'r')
+    file = open(cfgfile_path, 'r')
     lines = file.read().split('\n')  # 以回车符为标准读取内容
     lines = [x for x in lines if len(x) > 0]  # 去除空行
     lines = [x for x in lines if x[0] != '#']  # 去除#开头的语句
