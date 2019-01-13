@@ -2,6 +2,8 @@ from utils import parse_config
 import torch.nn as nn
 import torch
 from utils import utils
+from collections import defaultdict
+import numpy as np
 
 
 def create_modules(module_blocks):
@@ -252,27 +254,157 @@ class YOLOLayer(nn.Module):
             return loss, loss.item(), lx.item(), ly.item(), lw.item(), lh.item(), lconf.item(), lcls.item(), \
                    nT, TP, FP, FPe, FN, TC
         else:
-            pred_boxes[...,0]=x.data+self.grid_x
-            pred_boxes[...,1]=y.data+self.grid_y
-            pred_boxes[...,2]=width
-            pred_boxes[...,3]=height
+            pred_boxes[..., 0] = x.data + self.grid_x
+            pred_boxes[..., 1] = y.data + self.grid_y
+            pred_boxes[..., 2] = width
+            pred_boxes[..., 3] = height
 
-            #如果没有在训练阶段返回预测
-            output =torch.cat((pred_boxes.view(bs,-1,4)*stride,
-                               torch.sigmoid(pred_conf.view(bs,-11)),
-                               pred_cls.view(bs,-1,self.nC)),-1)
+            # 如果没有在训练阶段返回预测
+            output = torch.cat((pred_boxes.view(bs, -1, 4) * stride,
+                                torch.sigmoid(pred_conf.view(bs, -11)),
+                                pred_cls.view(bs, -1, self.nC)), -1)
             return output.data
 
 
 class Darknet(nn.Module):
     '''Yolov3 object detection model'''
-    def __init__(self):
-        pass
 
+    def __init__(self, cfgfile_path, img_size=416):
+        super(Darknet, self).__init__()
+        self.module_blocks = parse_config.parse_model_config(cfgfile_path)
+        self.module_blocks[0]['height'] = img_size
+        self.net_hyperparams, self.module_list = create_modules(self.module_blocks)
+        self.img_size = img_size
+        self.loss_names = ['loss', 'x', 'y', 'w', 'h', 'conf', 'cls', 'nT', 'TP', 'FP', 'FPe', 'FN', 'TC']
 
+    def forward(self, x, targets=None, batch_report=False, var=0):
+        is_training = targets is not None
+        output = []
+        self.losses = defaultdict(float)
+        layer_outputs = []
 
+        for i, (module_block, module) in enumerate(zip(self.module_blocks, self.module_list)):
+            if module_block['type'] == ['convolutional', 'upsample']:
+                x = module(x)  # x=nn.conv(x) or  x=nn.upsample(x)
+            elif module_block['type'] == 'route':
+                layer_i = [int(x) for x in module_block['layers'].split(',')]
+                x = torch.cat([layer_outputs[i] for i in layer_i], 1)
+            elif module_block['type'] == 'shortcut':
+                layer_i = int(module_block['from'])
+                x = layer_outputs[-1] + layer_outputs[layer_i]
+            elif module_block['type'] == 'yolo':
 
+                # Train phase:get loss
+                if is_training:
+                    x, *losses = module[0](x, targets, batch_report, var)
+                    for name, loss in zip(self.loss_names, losses):
+                        self.losses[name] += loss
+                else:
+                    x = module(x)
+                output.append(x)
+            layer_outputs.append(x)
 
+        if is_training:
+            if batch_report:
+                self.losses['TC'] /= 3  # TC:target category  目标类别
+                metrics = torch.zeros(3, len(self.losses['FPe']))  # TP,FP,FN    # metrics: 指标
+
+                ui = np.unique(self.losses['TC'])[1:]
+                for i in ui:
+                    j = self.losses['TC'] == float(i)
+                    metrics[0, i] = (self.losses['TP'][j] > 0).sum().float()  # TP
+                    metrics[1, i] = (self.losses['FP'][j] > 0).sum().float()  # FP
+                    metrics[2, i] = (self.losses['FN'][j > 0]).sum().float()  # FN
+                metrics[1] += self.losses['FPe']
+
+                self.losses['TP'] = metrics[0].sum()
+                self.losses['FP'] = metrics[1].sum()
+                self.losses['FN'] = metrics[2].sum()
+                self.losses['metrics'] = metrics
+            else:
+                self.losses['TP'] = 0
+                self.losses['FP'] = 0
+                self.losses['FN'] = 0
+
+            self.losses['nT'] /= 3
+            self.losses['TC'] = 0
+        return sum(output) if is_training else torch.cat(output, 1)
+
+    def load_weights(self, weights_path, cutoff=-1):
+        # Parses and loads the weights stored in 'weights_path'
+        # @:param cutoff  - save layers between 0 and cutoff (cutoff = -1 -> all are saved)
+        if weights_path.endswith('darknet53.conv.74'):
+            cutoff = 75
+
+        # Open the weights file
+        fp = open(weights_path, 'rb')
+        header = np.fromfile(fp, dtype=np.int32, count=5)  # First five are header values
+
+        # Needed to write header when saving weights
+        self.header_info = header
+        self.seen = header[3]
+        weights = np.fromfile(fp, dtype=np.float32)  # The rest are weights
+        fp.close()
+
+        ptr = 0
+        for i, (module_block, module) in enumerate(zip(self.module_blocks[:cutoff], self.module_list[:cutoff])):
+            if module_block['type'] == 'convolutional':
+                conv_layer = module[0]
+                if module_block['batch_normalize']:
+                    # Load BN bias,weights,running mean and running variance
+                    bn_layer = module[1]
+                    num_b = bn_layer.bias.numel()  # Number of biases
+                    # Bias
+                    bn_b = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.bias)
+                    bn_layer.bias.data.copy_(bn_b)
+                    ptr += num_b
+                    # Weight
+                    bn_w = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.weight)
+                    bn_layer.weight.data.copy_(bn_w)
+                    ptr += num_b
+                    # Running Mean
+                    bn_rm = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.running_mean)
+                    bn_layer.running_mean.data.copy_(bn_rm)
+                    ptr += num_b
+                    # Running Var
+                    bn_rv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.running_var)
+                    bn_layer.running_var.data.copy_(bn_rv)
+                    ptr += num_b
+                else:
+                    # Load conv. bias
+                    num_b = conv_layer.bias.numel()  # torch.numel() 返回一个tensor变量内所有元素个数，可以理解为矩阵内元素的个数
+                    conv_b = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(conv_layer.bias)
+                    conv_layer.bias.data.copy_(conv_b)
+                    ptr += num_b
+                # Load conv. weight
+                num_w = conv_layer.weight.numel()
+                conv_w = torch.from_numpy(weights[ptr:ptr + num_w]).view_as(conv_layer.weight)
+                conv_layer.weight.data.copy_(conv_w)
+                ptr += num_w
+
+    def save_weights(self, path, cutoff=-1):
+        fp = open(path, 'wb')
+        self.header_info[3] = self.seen
+        self.header_info.tofile(fp)
+
+        # Iterate throught layers
+        for i, (module_block, module) in enumerate(zip(self.module_blocks[:cutoff], self.module_list[:cutoff])):
+            if module_block['type'] == 'convolutional':
+                conv_layer = module[0]
+                # IF BATCHNORM,LOAD BN FIRST
+                if module_block['batch_normalize']:
+                    bn_layer = module[1]
+                    bn_layer.bias.data.cpu().numpy().tofile(fp)
+                    bn_layer.weight.data.cpu().numpy().tofile(fp)
+                    bn_layer.running_mean.data.cpu().numpy().tofile(fp)
+                    bn_layer.running_var.data.cpu().numpy().tofile(fp)
+                # LOAD CONV BIAS
+                else:
+                    conv_layer.bias.data.cpu().numpy().tofile(fp)
+                # LOAD CONV WEIGHTS
+                conv_layer.weight.data.cpu().numpy().tofile(fp)
+
+        fp.close()
 
 
 if __name__ == '__main__':
