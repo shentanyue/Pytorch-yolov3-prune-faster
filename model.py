@@ -57,9 +57,11 @@ def create_modules(module_blocks):
 
             # 判断激活曾是否为Leaky，是则增加。
             if activation == 'leaky':
-                modules.add_module('leaky%d' % index, nn.LeakyReLU(0, 1, inplace=True))
+                modules.add_module('leaky%d' % index, nn.LeakyReLU(0.1))
 
         # 上采样层
+        # [upsample]
+        # stride = 2
         elif module_block['type'] == 'upsample':
             stride = int(module_block['stride'])
             upsample = nn.Upsample(scale_factor=stride,
@@ -144,7 +146,7 @@ class YOLOLayer(nn.Module):
         nG = int(self.img_dim / stride)  # number of grid points
         self.grid_x = torch.arange(nG).repeat(nG, 1).view([1, 1, nG, nG]).float()
         self.grid_y = torch.arange(nG).repeat(nG, 1).t().view([1, 1, nG, nG]).float()
-        self.scaled_anchors = torch.FloatTensor([a_w / stride, a_h / stride] for a_w, a_h in anchors)
+        self.scaled_anchors = torch.FloatTensor([(a_w / stride, a_h / stride) for a_w, a_h in anchors])
         self.anchors_w = self.scaled_anchors[:, 0:1].view((1, num_anchors, 1, 1))
         self.anchors_h = self.scaled_anchors[:, 1:2].view((1, num_anchors, 1, 1))
         self.weights = utils.class_weights()
@@ -170,11 +172,11 @@ class YOLOLayer(nn.Module):
         # Get outputs                 #由于permute倒置了，所以xywh在0,1,2,3
         x = torch.sigmoid(p[..., 0])  # Center x
         y = torch.sigmoid(p[..., 1])  # Center y
-        print("====================")
-        print(x)
-        print("--------------------")
-        print(y)
-        print("====================")
+        # print("====================")
+        # print(x)
+        # print("--------------------")
+        # print(y)
+        # print("====================")
 
         # Width and height (yolo method)
         w = p[..., 2]  # width
@@ -237,7 +239,7 @@ class YOLOLayer(nn.Module):
             balance_losses_flag = False
             if balance_losses_flag:
                 k = 1 / self.loss_means.clone()
-                loss = (lx * k[0] + ly * k[1], lw * k[2], lh * k[3], lconf * k[4], lcls * k[5]) / k.mean()
+                loss = (lx * k[0] + ly * k[1] + lw * k[2] + lh * k[3] + lconf * k[4] + lcls * k[5]) / k.mean()
                 self.loss_means = self.loss_means * 0.99 + \
                                   FT([lx.data, ly.data, lw.data, lh.data, lconf.data, lcls.data]) * 0.01
             else:
@@ -261,7 +263,7 @@ class YOLOLayer(nn.Module):
 
             # 如果没有在训练阶段返回预测
             output = torch.cat((pred_boxes.view(bs, -1, 4) * stride,
-                                torch.sigmoid(pred_conf.view(bs, -11)),
+                                torch.sigmoid(pred_conf.view(bs, -1, 1)),
                                 pred_cls.view(bs, -1, self.nC)), -1)
             return output.data
 
@@ -314,7 +316,7 @@ class Darknet(nn.Module):
                     j = self.losses['TC'] == float(i)
                     metrics[0, i] = (self.losses['TP'][j] > 0).sum().float()  # TP
                     metrics[1, i] = (self.losses['FP'][j] > 0).sum().float()  # FP
-                    metrics[2, i] = (self.losses['FN'][j > 0]).sum().float()  # FN
+                    metrics[2, i] = (self.losses['FN'][j] == 3).sum().float()  # FN
                 metrics[1] += self.losses['FPe']
 
                 self.losses['TP'] = metrics[0].sum()
@@ -410,4 +412,5 @@ class Darknet(nn.Module):
 if __name__ == '__main__':
     cfgfile = "cfg\yolov3.cfg"
     blocks = parse_config.parse_model_config(cfgfile)
-    create_modules(blocks)
+    a=create_modules(blocks)
+    print(a)

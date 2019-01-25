@@ -35,4 +35,20 @@ def class_weights():
 
 
 def build_targets(pred_boxes, pred_conf, pred_cls, target, anchor_wh, nA, nC, nG, batch_report):
-    pass
+    """return tx, ty, tw, th, tconf, tcls, nCorrect, nT:number of targets """
+    nB = len(target)  # number of images in batch
+    nT = [len(x) for x in target]  # targets per image
+    tx = torch.zeros(nB, nA, nG, nG)  # nB:batch size(4)
+    ty = torch.zeros(nB, nA, nG, nG)  # nA:number of anchors(3),
+    tw = torch.zeros(nB, nA, nG, nG)  # nG:number of grid points(13) = img_dim/stride
+    th = torch.zeros(nB, nA, nG, nG)
+    tconf = torch.ByteTensor(nB, nA, nG, nG).fill_(0)  # 在函数后面加 _  是改变自身的意思
+    tcls = torch.ByteTensor(nB, nA, nG, nG, nC).fill_(0)  # nC = number of classes
+    TP = torch.ByteTensor(nB, max(nT)).fill_(0)
+    FP = torch.ByteTensor(nB, max(nT)).fill_(0)
+    FN = torch.ByteTensor(nB, max(nT)).fill_(0)
+
+    TC = torch.ShortTensor(nB, max(nT)).fill_(-1)  # target category
+
+    for b in range(nB):
+        nTb = nT[b]  # number of targets
