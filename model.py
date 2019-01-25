@@ -203,11 +203,11 @@ class YOLOLayer(nn.Module):
 
             if batch_report:
                 gx = self.grid_x[:, :, :nG, :nG]
-                gy = self.grad_y[:, :, :nG, :nG]
+                gy = self.grid_y[:, :, :nG, :nG]
                 pred_boxes[..., 0] = x.data + gx - width / 2
                 pred_boxes[..., 1] = y.data + gy - height / 2
                 pred_boxes[..., 2] = x.data + gx + width / 2
-                pred_boxes[..., 3] = y.data + gx + height / 2
+                pred_boxes[..., 3] = y.data + gy + height / 2
 
             # TC:target category
             # t: target
@@ -286,7 +286,7 @@ class Darknet(nn.Module):
         layer_outputs = []
 
         for i, (module_block, module) in enumerate(zip(self.module_blocks, self.module_list)):
-            if module_block['type'] == ['convolutional', 'upsample']:
+            if module_block['type'] in ['convolutional', 'upsample']:
                 x = module(x)  # x=nn.conv(x) or  x=nn.upsample(x)
             elif module_block['type'] == 'route':
                 layer_i = [int(x) for x in module_block['layers'].split(',')]
