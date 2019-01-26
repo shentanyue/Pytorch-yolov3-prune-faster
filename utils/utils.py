@@ -34,6 +34,34 @@ def class_weights():
     return weights
 
 
+def bbox_iou(box1, box2, x1y1x2y2=True):
+    """
+    Returns the IoU of two bounding boxes
+    """
+    if x1y1x2y2:
+        # Get the coordinates of bounding boxes
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, 0], box1[:, 1], box1[:, 2], box1[:, 3]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, 0], box2[:, 1], box2[:, 2], box2[:, 3]
+    else:
+        # Transform from center and width to exact coordinates
+        b1_x1, b1_x2 = box1[:, 0] - box1[:, 2] / 2, box1[:, 0] + box1[:, 2] / 2
+        b1_y1, b1_y2 = box1[:, 1] - box1[:, 3] / 2, box1[:, 1] + box1[:, 3] / 2
+        b2_x1, b2_x2 = box2[:, 0] - box2[:, 2] / 2, box2[:, 0] + box2[:, 2] / 2
+        b2_y1, b2_y2 = box2[:, 1] - box2[:, 3] / 2, box2[:, 1] + box2[:, 3] / 2
+
+    # get the coordinates of the intersection rectangle
+    inter_rect_x1 = torch.max(b1_x1, b2_x1)
+    inter_rect_y1 = torch.max(b1_y1, b2_y1)
+    inter_rect_x2 = torch.min(b1_x2, b2_x2)
+    inter_rect_y2 = torch.min(b1_y2, b2_y2)
+    # Intersection area
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, 0) * torch.clamp(inter_rect_y2 - inter_rect_y1, 0)
+    # Union Area
+    b1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1)
+    b2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1)
+
+    return inter_area / (b1_area + b2_area - inter_area + 1e-16)
+
 def build_targets(pred_boxes, pred_conf, pred_cls, target, anchor_wh, nA, nC, nG, batch_report):
     """return tx, ty, tw, th, tconf, tcls, nCorrect, nT:number of targets """
     nB = len(target)  # number of images in batch
@@ -48,7 +76,84 @@ def build_targets(pred_boxes, pred_conf, pred_cls, target, anchor_wh, nA, nC, nG
     FP = torch.ByteTensor(nB, max(nT)).fill_(0)
     FN = torch.ByteTensor(nB, max(nT)).fill_(0)
 
-    TC = torch.ShortTensor(nB, max(nT)).fill_(-1)  # target category
+    TC = torch.ShortTensor(nB, max(nT)).fill_(-1)  # target category  目标类别
 
     for b in range(nB):
         nTb = nT[b]  # number of targets
+        if nTb == 0:
+            continue
+        t = target[b]
+        if batch_report:
+            FN[b, :nTb] = 1
+
+        # 转换为相对于框的位置
+        TC[b, :nTb], gx, gy, gw, gh = t[:, 0].long(), t[:, 1] * nG, t[:, 2] * nG, t[:, 3] * nG, t[:, 4] * nG
+        # 获取网格框索引并防止溢出（即13个锚点上的13.01）
+        '''
+        clamp表示夹紧，夹住的意思，torch.clamp(input,min,max,out=None)-> Tensor
+        将input中的元素限制在[min,max]范围内并返回一个Tensor
+        '''
+        gi = torch.clamp(gx.long(), min=0, max=nG - 1)
+        gj = torch.clamp(gy.long(), min=0, max=nG - 1)
+
+        # iou of targets-anchors (using wh only)
+        box1 = t[:, 3:5] * nG
+        # box2 = anchor_grid_wh[:, gj, gi]
+        box2 = anchor_wh.unsqueeze(1).repeat(1, nTb, 1)
+
+        # torch.prod(input): 返回所有元素的乘积
+        inter_area = torch.min(box1, box2).prod(2)
+        iou_anch = inter_area / (gw * gh + box2.prod(2) - inter_area + 1e-16)
+
+        # Sekect best iou_pred and anchor
+        iou_anch_best, a = iou_anch.max(0)  # best anchor [0-2] for each target
+
+        # Select best unique target-anchor combinations
+        if nTb > 1:
+            iou_order = np.argsort(-iou_anch_best)  # best to worst
+
+            # Unique anchor selection(slower but retains original order)
+            u = torch.cat((gi, gj, a), 0).view(3, -1).numpy()
+            _, first_unique = np.unique(u[:, iou_order], axis=1, return_index=True)  # 第一个独特的指数
+
+            i = iou_order[first_unique]
+            # 最佳anchor必须与目标共享重要的共性（iou）
+            i = i[iou_anch_best[i] > 0.10]
+            if len(i) == 0:
+                continue
+
+            a, gj, gi, t = a[i], gj[i], gi[i], t[i]
+            if len(t.shape) == 1:
+                t = t.view(1, 5)
+        else:
+            if iou_anch_best < 0.10:
+                continue
+            i = 0
+
+        tc, gx, gy, gw, gh = t[:, 0].long(), t[:, 1] * nG, t[:, 2] * nG, t[:, 3] * nG, t[:, 4] * nG
+
+        # Coordinates  坐标
+        # b : number of images in batch
+        # a : anchor
+        tx[b, a, gj, gi] = gx - gi.float()
+        ty[b, a, gj, gi] = gy - gj.float()
+
+        # Width and height(yolo method)
+        tw[b, a, gj, gi] = torch.log(gw / anchor_wh[a, 0])
+        th[b, a, gj, gi] = torch.log(gh / anchor_wh[a, 1])
+
+        # One-hot encoding of label
+        tcls[b, a, gj, gi, tc] = 1
+        tconf[b, a, gj, gi] = 1
+
+        if batch_report:
+            # predicted classes and confidence
+            tb = torch.cat((gx - gw / 2, gy - gh / 2, gx + gw / 2, gy + gh / 2)).view(4, -1).t()  # target boxes
+            pcls = torch.argmax(pred_cls[b, a, gj, gi], 1).cpu()
+            pconf = torch.sigmoid(pred_conf[b, a, gj, gi]).cpu()
+            iou_pred = bbox_iou(tb, pred_boxes[b, a, gj, gi].cpu())
+
+            TP[b, i] = (pconf > 0.5) & (iou_pred > 0.5) & (pcls == tc)
+            FP[b, i] = (pconf > 0.5) & (TP[b, i] == 0)
+            FN[b, i] = pconf <= 0.5
+    return tx, ty, tw, th, tconf, tcls, TP, FP, FN, TC
