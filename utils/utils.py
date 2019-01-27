@@ -175,3 +175,6 @@ def build_targets(pred_boxes, pred_conf, pred_cls, target, anchor_wh, nA, nC, nG
             FP[b, i] = (pconf > 0.5) & (TP[b, i] == 0)
             FN[b, i] = pconf <= 0.5
     return tx, ty, tw, th, tconf, tcls, TP, FP, FN, TC
+
+def model_info(model):# Plots a line-by-line description of a PyTorch model
+    pass
