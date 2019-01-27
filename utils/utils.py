@@ -176,5 +176,232 @@ def build_targets(pred_boxes, pred_conf, pred_cls, target, anchor_wh, nA, nC, nG
             FN[b, i] = pconf <= 0.5
     return tx, ty, tw, th, tconf, tcls, TP, FP, FN, TC
 
-def model_info(model):# Plots a line-by-line description of a PyTorch model
-    pass
+
+def model_info(model):  # Plots a line-by-line description of a PyTorch model
+    n_p = sum(x.numel() for x in model.parameters())  # number parameters
+    n_g = sum(x.numel() for x in model.parameters() if x.requires_grad)  # number gradients
+    print('\n%5s %50s %9s %12s %20s %12s %12s' % ('layer', 'name', 'gradient', 'parameters', 'shape', 'mu', 'sigma'))
+    for i, (name, p) in enumerate(model.named_parameters()):
+        name = name.replace('module_list.', '')
+        print('%5g %50s %9s %12g %20s %12.3g %12.3g' % (
+            i, name, p.requires_grad, p.numel(), list(p.shape), p.mean(), p.std()))
+    print('Model Summary: %g layers, %g parameters, %g gradients\n' % (i + 1, n_p, n_g))
+
+def load_classes(path):
+    """
+    Loads class labels at 'path'
+    """
+    fp = open(path, 'r')
+    names = fp.read().split('\n')[:-1]
+    return names
+
+
+def ap_per_class(tp, conf, pred_cls, target_cls):
+    """ Compute the average precision, given the recall and precision curves.
+    Method originally from https://github.com/rafaelpadilla/Object-Detection-Metrics.
+    # Arguments
+        tp:    True positives (list).
+        conf:  Objectness value from 0-1 (list).
+        pred_cls: Predicted object classes (list).
+        target_cls: True object classes (list).
+    # Returns
+        The average precision as computed in py-faster-rcnn.
+    """
+
+    # lists/pytorch to numpy
+    tp, conf, pred_cls, target_cls = np.array(tp), np.array(conf), np.array(pred_cls), np.array(target_cls)
+
+    # Sort by objectness
+    i = np.argsort(-conf)
+    tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
+
+    # Find unique classes
+    unique_classes = np.unique(np.concatenate((pred_cls, target_cls), 0))
+
+    # Create Precision-Recall curve and compute AP for each class
+    ap, p, r = [], [], []
+    for c in unique_classes:
+        i = pred_cls == c
+        n_gt = sum(target_cls == c)  # Number of ground truth objects
+        n_p = sum(i)  # Number of predicted objects
+
+        if (n_p == 0) and (n_gt == 0):
+            continue
+        elif (n_p == 0) or (n_gt == 0):
+            ap.append(0)
+            r.append(0)
+            p.append(0)
+        else:
+            # Accumulate FPs and TPs
+            fpc = np.cumsum(1 - tp[i])
+            tpc = np.cumsum(tp[i])
+
+            # Recall
+            recall_curve = tpc / (n_gt + 1e-16)
+            r.append(tpc[-1] / (n_gt + 1e-16))
+
+            # Precision
+            precision_curve = tpc / (tpc + fpc)
+            p.append(tpc[-1] / (tpc[-1] + fpc[-1]))
+
+            # AP from recall-precision curve
+            ap.append(compute_ap(recall_curve, precision_curve))
+
+    return np.array(ap), unique_classes.astype('int32'), np.array(r), np.array(p)
+
+
+def compute_ap(recall, precision):
+    """ Compute the average precision, given the recall and precision curves.
+    Code originally from https://github.com/rbgirshick/py-faster-rcnn.
+    # Arguments
+        recall:    The recall curve (list).
+        precision: The precision curve (list).
+    # Returns
+        The average precision as computed in py-faster-rcnn.
+    """
+    # correct AP calculation
+    # first append sentinel values at the end
+
+    mrec = np.concatenate(([0.], recall, [1.]))
+    mpre = np.concatenate(([0.], precision, [0.]))
+
+    # compute the precision envelope
+    for i in range(mpre.size - 1, 0, -1):
+        mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
+
+    # to calculate area under PR curve, look for points
+    # where X axis (recall) changes value
+    i = np.where(mrec[1:] != mrec[:-1])[0]
+
+    # and sum (\Delta recall) * prec
+    ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
+    return ap
+
+
+def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
+    """
+    Removes detections with lower object confidence score than 'conf_thres' and performs
+    Non-Maximum Suppression to further filter detections.
+    Returns detections with shape:
+        (x1, y1, x2, y2, object_conf, class_score, class_pred)
+    """
+
+    output = [None for _ in range(len(prediction))]
+    for image_i, pred in enumerate(prediction):
+        # Filter out confidence scores below threshold
+        # Get score and class with highest confidence
+
+        # cross-class NMS (experimental)
+        cross_class_nms = False
+        if cross_class_nms:
+            # thresh = 0.85
+            thresh = nms_thres
+            a = pred.clone()
+            _, indices = torch.sort(-a[:, 4], 0)  # sort best to worst
+            a = a[indices]
+            radius = 30  # area to search for cross-class ious
+            for i in range(len(a)):
+                if i >= len(a) - 1:
+                    break
+
+                close = (torch.abs(a[i, 0] - a[i + 1:, 0]) < radius) & (torch.abs(a[i, 1] - a[i + 1:, 1]) < radius)
+                close = close.nonzero()
+
+                if len(close) > 0:
+                    close = close + i + 1
+                    iou = bbox_iou(a[i:i + 1, :4], a[close.squeeze(), :4].reshape(-1, 4), x1y1x2y2=False)
+                    bad = close[iou > thresh]
+
+                    if len(bad) > 0:
+                        mask = torch.ones(len(a)).type(torch.ByteTensor)
+                        mask[bad] = 0
+                        a = a[mask]
+            pred = a
+
+        x, y, w, h = pred[:, 0], pred[:, 1], pred[:, 2], pred[:, 3]
+        a = w * h  # area
+        ar = w / (h + 1e-16)  # aspect ratio
+
+        log_w, log_h, log_a, log_ar = torch.log(w), torch.log(h), torch.log(a), torch.log(ar)
+
+        # n = len(w)
+        # shape_likelihood = np.zeros((n, 60), dtype=np.float32)
+        # x = np.concatenate((log_w.reshape(-1, 1), log_h.reshape(-1, 1)), 1)
+        # from scipy.stats import multivariate_normal
+        # for c in range(60):
+        # shape_likelihood[:, c] = multivariate_normal.pdf(x, mean=mat['class_mu'][c, :2], cov=mat['class_cov'][c, :2, :2])
+
+        class_prob, class_pred = torch.max(F.softmax(pred[:, 5:], 1), 1)
+
+        v = ((pred[:, 4] > conf_thres) & (class_prob > .3))
+        v = v.nonzero().squeeze()
+        if len(v.shape) == 0:
+            v = v.unsqueeze(0)
+
+        pred = pred[v]
+        class_prob = class_prob[v]
+        class_pred = class_pred[v]
+
+        # If none are remaining => process next image
+        nP = pred.shape[0]
+        if not nP:
+            continue
+
+        # From (center x, center y, width, height) to (x1, y1, x2, y2)
+        box_corner = pred.new(nP, 4)
+        xy = pred[:, 0:2]
+        wh = pred[:, 2:4] / 2
+        box_corner[:, 0:2] = xy - wh
+        box_corner[:, 2:4] = xy + wh
+        pred[:, :4] = box_corner
+
+        # Detections ordered as (x1, y1, x2, y2, obj_conf, class_prob, class_pred)
+        detections = torch.cat((pred[:, :5], class_prob.float().unsqueeze(1), class_pred.float().unsqueeze(1)), 1)
+        # Iterate through all predicted classes
+        unique_labels = detections[:, -1].cpu().unique()
+        if prediction.is_cuda:
+            unique_labels = unique_labels.cuda(prediction.device)
+
+        nms_style = 'OR'  # 'AND' or 'OR' (classical)
+        for c in unique_labels:
+            # Get the detections with the particular class
+            detections_class = detections[detections[:, -1] == c]
+            # Sort the detections by maximum objectness confidence
+            _, conf_sort_index = torch.sort(detections_class[:, 4], descending=True)
+            detections_class = detections_class[conf_sort_index]
+            # Perform non-maximum suppression
+            max_detections = []
+
+            if nms_style == 'OR':  # Classical NMS
+                while detections_class.shape[0]:
+                    # Get detection with highest confidence and save as max detection
+                    max_detections.append(detections_class[0].unsqueeze(0))
+                    # Stop if we're at the last detection
+                    if len(detections_class) == 1:
+                        break
+                    # Get the IOUs for all boxes with lower confidence
+                    ious = bbox_iou(max_detections[-1], detections_class[1:])
+
+                    # Remove detections with IoU >= NMS threshold
+                    detections_class = detections_class[1:][ious < nms_thres]
+
+            elif nms_style == 'AND':  # 'AND'-style NMS, at least two boxes must share commonality to pass, single boxes erased
+                while detections_class.shape[0]:
+                    if len(detections_class) == 1:
+                        break
+
+                    ious = bbox_iou(detections_class[:1], detections_class[1:])
+
+                    if ious.max() > 0.5:
+                        max_detections.append(detections_class[0].unsqueeze(0))
+
+                    # Remove detections with IoU >= NMS threshold
+                    detections_class = detections_class[1:][ious < nms_thres]
+
+            if len(max_detections) > 0:
+                max_detections = torch.cat(max_detections).data
+                # Add max detections to outputs
+                output[image_i] = max_detections if output[image_i] is None else torch.cat(
+                    (output[image_i], max_detections))
+
+    return output
