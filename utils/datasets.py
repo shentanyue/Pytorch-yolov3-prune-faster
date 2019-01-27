@@ -241,6 +241,7 @@ def random_affine(img, targets=None, degrees=(-10, 10), translate=(.1, .1), scal
             xy = np.concatenate((x.min(1), y.min(1), x.max(1), y.max(1))).reshape(4, n).T
 
             # apply angle-based reduction
+            # 应用基于角度的缩减
             radians = a * math.pi / 180
             reduction = max(abs(math.sin(radians)), abs(math.cos(radians))) ** 0.5
             x = (xy[:, 2] + xy[:, 0]) / 2
@@ -250,6 +251,7 @@ def random_affine(img, targets=None, degrees=(-10, 10), translate=(.1, .1), scal
             xy = np.concatenate((x - w / 2, y - h / 2, x + w / 2, y + h / 2)).reshape(4, n).T
 
             # reject warped points outside of image
+            # 拒绝图像外的扭曲点
             np.clip(xy, 0, height, out=xy)
             w = xy[:, 2] - xy[:, 0]
             h = xy[:, 3] - xy[:, 1]

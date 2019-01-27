@@ -58,4 +58,23 @@ def train(
     if multi_scale:                 # pass maximum multi_scale size
         img_size=608
 
+    dataloader = load_images_and_labels(train_path,batch_size=batch_size,img_size=img_size,
+                                        multi_scale=multi_scale,augment=True)
+
+    lr0 = 0.001
+    if resume:
+        pass
+    else:
+        start_epoch=0
+        best_loss=float('inf')
+
+        #Initialize model with darknet53 weights(optional)
+        def_weight_file=os.path.join(weights_path,DARKNET_WEIGHTS_FILENAME)
+        if not os.path.isfile(def_weight_file):
+            os.system('wget {} -P {}'.format(
+                DARKNET_WEIGHTS_URL,
+                weights_path))
+        assert os.path.isfile(def_weight_file)
+
+        model.load_weights(model,def_weight_file)
 
