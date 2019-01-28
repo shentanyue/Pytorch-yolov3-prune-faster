@@ -1,3 +1,4 @@
+#coding=utf-8
 from utils import parse_config
 import torch.nn as nn
 import torch

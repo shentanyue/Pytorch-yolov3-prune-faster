@@ -1,3 +1,4 @@
+#coding=utf-8
 import argparse
 import sys
 import time
@@ -66,8 +67,6 @@ def train(
         checkpoint = torch.load(latest_weights_file, map_location='cpu')
 
         model.load_state_dict(checkpoint['model'])
-        if torch.cuda.device_count() > 1:
-            raise Exception('Multi-GPU not currently supported: https://github.com/ultralytics/yolov3/issues/21')
             # print('Using ', torch.cuda.device_count(), ' GPUs')
             # model = nn.DataParallel(model)
         model.to(device).train()
@@ -99,7 +98,7 @@ def train(
                 weights_path))
         assert os.path.isfile(def_weight_file)
 
-        model.load_weights(model, def_weight_file)
+        model.load_weights(def_weight_file)
 
         model.to(device).train()
 
@@ -114,7 +113,7 @@ def train(
         print(('%8s%12s' + '%10s' * 14) % ('Epoch', 'Batch', 'x', 'y', 'w', 'h', 'conf', 'cls', 'total', 'P', 'R',
                                            'nTargets', 'TP', 'FP', 'FN', 'time'))
 
-        if epoch > 25:
+        if epoch > 10:
             lr = lr0 / 10
         else:
             lr = lr0
@@ -150,7 +149,7 @@ def train(
             loss = model(imgs.to(device), targets, batch_report=report, var=var)
             loss.backward()
             # Sparsity L1 loss
-            updateBN(model, s)
+            updateBN(model, 0.0001)
             # 累积批次
             accumulated_batches = 4  # accumulate gradient for 4 batches before optimizing
             if ((i + 1) % accumulated_batches == 0) or (i == len(dataloader) - 1):
@@ -188,53 +187,53 @@ def train(
             t1 = time.time()
             print(s)
 
-            # Update best loss
-            loss_per_target = rloss['loss'] / rloss['nT']
-            if loss_per_target < best_loss:
-                best_loss = loss_per_target
+        # Update best loss
+        loss_per_target = rloss['loss'] / rloss['nT']
+        if loss_per_target < best_loss:
+            best_loss = loss_per_target
 
-            # Save latest checkpoint
-            checkpoint = {'epoch': epoch,
-                          'best_loss': best_loss,
-                          'model': model.state_dict(),
-                          'optimizer': optimizer.state_dict()}
-            torch.save(checkpoint, latest_weights_file)
+        # Save latest checkpoint
+        checkpoint = {'epoch': epoch,
+                      'best_loss': best_loss,
+                      'model': model.state_dict(),
+                      'optimizer': optimizer.state_dict()}
+        torch.save(checkpoint, latest_weights_file)
 
-            # Save best checkpoint
+        # Save best checkpoint
 
-            # Save best checkpoint
-            if best_loss == loss_per_target:
-                os.system('cp {} {}'.format(
-                    latest_weights_file,
-                    best_weights_file,
-                ))
-
-            # Save backup weights every 5 epochs
-            if (epoch > 0) & (epoch % 5 == 0):
-                backup_file_name = 'backup{}.pt'.format(epoch)
-                backup_file_path = os.path.join(weights_path, backup_file_name)
-                os.system('cp {} {}'.format(
-                    latest_weights_file,
-                    backup_file_path,
-                ))
-                model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weight', epoch))
-                print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weight', epoch))
-            # Calculate mAP
-            mAP, R, P = test.test(
-                net_config_path,
-                data_config_path,
+        # Save best checkpoint
+        if best_loss == loss_per_target:
+            os.system('cp {} {}'.format(
                 latest_weights_file,
-                batch_size=batch_size,
-                img_size=img_size,
-            )
+                best_weights_file,
+            ))
 
-            # Write epoch results
-            with open('results.txt', 'a') as file:
-                file.write(s + '%11.3g' * 3 % (mAP, P, R) + '\n')
+        # Save backup weights every 5 epochs
+        if (epoch > 0) & (epoch % 5 == 0):
+            backup_file_name = 'backup{}.pt'.format(epoch)
+            backup_file_path = os.path.join(weights_path, backup_file_name)
+            os.system('cp {} {}'.format(
+                latest_weights_file,
+                backup_file_path,
+            ))
+            model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weight', epoch))
+            print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weight', epoch))
+        # Calculate mAP
+        mAP, R, P = test.test(
+            net_config_path,
+            data_config_path,
+            latest_weights_file,
+            batch_size=batch_size,
+            img_size=img_size,
+        )
 
-        # Save final model
-        dt = time.time() - t0
-        print('Finished %g epochs in %.2fs (%.2fs/epoch)' % (epoch, dt, dt / (epoch + 1)))
+        # Write epoch results
+        with open('results.txt', 'a') as file:
+            file.write(s + '%11.3g' * 3 % (mAP, P, R) + '\n')
+
+    # Save final model
+    dt = time.time() - t0
+    print('Finished %g epochs in %.2fs (%.2fs/epoch)' % (epoch, dt, dt / (epoch + 1)))
 
 
 if __name__ == '__main__':

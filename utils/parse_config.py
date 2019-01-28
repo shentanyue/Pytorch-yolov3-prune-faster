@@ -1,3 +1,4 @@
+#coding=utf-8
 # 解析yolov3的cfg文件，并将每个块存储为dict。块的属性及其值作为键值对存储在字典中。
 # 当我们解析cfg时，我们会继续将这些由block代码中的变量表示的dicts附加到列表中blocks。我们的函数将返回此块。
 def parse_model_config(cfgfile_path):
