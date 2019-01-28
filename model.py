@@ -383,34 +383,62 @@ class Darknet(nn.Module):
                 conv_w = torch.from_numpy(weights[ptr:ptr + num_w]).view_as(conv_layer.weight)
                 conv_layer.weight.data.copy_(conv_w)
                 ptr += num_w
+        print("done!")
+
+    # def save_weights(self, path, cutoff=-1):
+    #     fp = open(path, 'wb')
+    #     self.header_info[3] = self.seen
+    #     self.header_info.tofile(fp)
+    # 
+    #     # Iterate throught layers
+    #     for i, (module_block, module) in enumerate(zip(self.module_blocks[:cutoff], self.module_list[:cutoff])):
+    #         if module_block['type'] == 'convolutional':
+    #             conv_layer = module[0]
+    #             # IF BATCHNORM,LOAD BN FIRST
+    #             if module_block['batch_normalize']:
+    #                 bn_layer = module[1]
+    #                 bn_layer.bias.data.cpu().numpy().tofile(fp)
+    #                 bn_layer.weight.data.cpu().numpy().tofile(fp)
+    #                 bn_layer.running_mean.data.cpu().numpy().tofile(fp)
+    #                 bn_layer.running_var.data.cpu().numpy().tofile(fp)
+    #             # LOAD CONV BIAS
+    #             else:
+    #                 conv_layer.bias.data.cpu().numpy().tofile(fp)
+    #             # LOAD CONV WEIGHTS
+    #             conv_layer.weight.data.cpu().numpy().tofile(fp)
+    # 
+    #     fp.close()
 
     def save_weights(self, path, cutoff=-1):
+        """save layers between 0 and cutoff (cutoff = -1 -> all are saved)"""
         fp = open(path, 'wb')
         self.header_info[3] = self.seen
         self.header_info.tofile(fp)
-
-        # Iterate throught layers
-        for i, (module_block, module) in enumerate(zip(self.module_blocks[:cutoff], self.module_list[:cutoff])):
-            if module_block['type'] == 'convolutional':
-                conv_layer = module[0]
-                # IF BATCHNORM,LOAD BN FIRST
-                if module_block['batch_normalize']:
-                    bn_layer = module[1]
-                    bn_layer.bias.data.cpu().numpy().tofile(fp)
-                    bn_layer.weight.data.cpu().numpy().tofile(fp)
-                    bn_layer.running_mean.data.cpu().numpy().tofile(fp)
-                    bn_layer.running_var.data.cpu().numpy().tofile(fp)
-                # LOAD CONV BIAS
+        for i in range(len(self.module_list[:cutoff])):
+            module_type = self.blocks[i + 1]["type"]
+            # If module_type is convolutional load weights
+            # Otherwise ignore.
+            if module_type == "convolutional":
+                model = self.module_list[i]
+                try:
+                    batch_normalize = int(self.blocks[i + 1]["batch_normalize"])
+                except:
+                    batch_normalize = 0
+                conv = model[0]
+                if (batch_normalize):
+                    bn = model[1]
+                    bn.bias.data.cpu().numpy().tofile(fp)
+                    bn.weight.data.cpu().numpy().tofile(fp)
+                    bn.running_mean.data.cpu().numpy().tofile(fp)
+                    bn.running_var.data.cpu().numpy().tofile(fp)
                 else:
-                    conv_layer.bias.data.cpu().numpy().tofile(fp)
-                # LOAD CONV WEIGHTS
-                conv_layer.weight.data.cpu().numpy().tofile(fp)
-
+                    conv.bias.data.cpu().numpy().tofile(fp)
+                conv.weight.data.cpu().numpy().tofile(fp)
         fp.close()
 
 
 if __name__ == '__main__':
     cfgfile = "cfg\yolov3.cfg"
     blocks = parse_config.parse_model_config(cfgfile)
-    a=create_modules(blocks)
+    a = create_modules(blocks)
     print(a)
