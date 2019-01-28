@@ -132,34 +132,33 @@ class EmptyLayer(nn.Module):
 
 
 class YOLOLayer(nn.Module):
-    """Placeholder for 'YOLO'  用于检测"""
 
-    def __init__(self, anchors, num_classes, img_dim, anchor_idxs):
+    def __init__(self, anchors, nC, img_dim, anchor_idxs):
         super(YOLOLayer, self).__init__()
 
-        anchors = [(a_w, a_h) for a_w, a_h in anchors]
-        num_anchors = len(anchors)
+        anchors = [(a_w, a_h) for a_w, a_h in anchors]  # (pixels)
+        nA = len(anchors)
 
         self.anchors = anchors
-        self.nA = num_anchors  # number of anchors  (3)
-        self.nC = num_classes  # number of classes  (80)
-        self.bbox_attrs = 5 + num_classes  # (85)
-        self.img_dim = img_dim  # from net_hyperparams in cfg file,Not from parser
+        self.nA = nA  # number of anchors (3)
+        self.nC = nC  # number of classes (80)
+        self.bbox_attrs = 5 + nC
+        self.img_dim = img_dim  # from hyperparams in cfg file, NOT from parser
 
-        if anchor_idxs[0] == (num_anchors * 2):  # 6
+        if anchor_idxs[0] == (nA * 2):  # 6
             stride = 32
-        elif anchor_idxs[0] == num_anchors:  # 3
+        elif anchor_idxs[0] == nA:  # 3
             stride = 16
         else:
             stride = 8
 
-        # 建立anchor坐标
-        nG = int(self.img_dim / stride)  # number of grid points
+        # Build anchor grids
+        nG = int(self.img_dim / stride)  # number grid points
         self.grid_x = torch.arange(nG).repeat(nG, 1).view([1, 1, nG, nG]).float()
         self.grid_y = torch.arange(nG).repeat(nG, 1).t().view([1, 1, nG, nG]).float()
         self.scaled_anchors = torch.FloatTensor([(a_w / stride, a_h / stride) for a_w, a_h in anchors])
-        self.anchors_w = self.scaled_anchors[:, 0:1].view((1, num_anchors, 1, 1))
-        self.anchors_h = self.scaled_anchors[:, 1:2].view((1, num_anchors, 1, 1))
+        self.anchor_w = self.scaled_anchors[:, 0:1].view((1, nA, 1, 1))
+        self.anchor_h = self.scaled_anchors[:, 1:2].view((1, nA, 1, 1))
         self.weights = utils.class_weights()
 
         self.loss_means = torch.ones(6)
@@ -167,33 +166,28 @@ class YOLOLayer(nn.Module):
 
     def forward(self, p, targets=None, batch_report=False, var=None):
         FT = torch.cuda.FloatTensor if p.is_cuda else torch.FloatTensor
-        # p(12,255,13,13)
+
         bs = p.shape[0]  # batch size
         nG = p.shape[2]  # number of grid points
         stride = self.img_dim / nG
 
         if p.is_cuda and not self.grid_x.is_cuda:
             self.grid_x, self.grid_y = self.grid_x.cuda(), self.grid_y.cuda()
-            self.anchors_w, self.anchors_h = self.anchors_w.cuda(), self.anchors_h.cuda()
+            self.anchor_w, self.anchor_h = self.anchor_w.cuda(), self.anchor_h.cuda()
             self.weights, self.loss_means = self.weights.cuda(), self.loss_means.cuda()
 
-        # p.view(12, 3, 85, 13, 13) -- > (12, 3, 13, 13, 85)  # (bs, anchors, grid, grid, classes + xywh)
-        p = p.view(bs, self.nA, self.bbox_attrs, nG, nG).permute(0, 1, 3, 4, 2).contiguous  # prediction
+        # p.view(12, 255, 13, 13) -- > (12, 3, 13, 13, 80)  # (bs, anchors, grid, grid, classes + xywh)
+        p = p.view(bs, self.nA, self.bbox_attrs, nG, nG).permute(0, 1, 3, 4, 2).contiguous()  # prediction
 
-        # Get outputs                 #由于permute倒置了，所以xywh在0,1,2,3
+        # Get outputs
         x = torch.sigmoid(p[..., 0])  # Center x
         y = torch.sigmoid(p[..., 1])  # Center y
-        # print("====================")
-        # print(x)
-        # print("--------------------")
-        # print(y)
-        # print("====================")
 
         # Width and height (yolo method)
-        w = p[..., 2]  # width
-        h = p[..., 3]  # height
-        width = torch.exp(w.data) * self.anchors_w
-        height = torch.exp(h.data) * self.anchors_h
+        w = p[..., 2]  # Width
+        h = p[..., 3]  # Height
+        width = torch.exp(w.data) * self.anchor_w
+        height = torch.exp(h.data) * self.anchor_h
 
         # Width and height (power method)
         # w = torch.sigmoid(p[..., 2])  # Width
@@ -201,10 +195,10 @@ class YOLOLayer(nn.Module):
         # width = ((w.data * 2) ** 2) * self.anchor_w
         # height = ((h.data * 2) ** 2) * self.anchor_h
 
-        # Add offset and scale with anchors (in grid space,i.e. 0-13)
+        # Add offset and scale with anchors (in grid space, i.e. 0-13)
         pred_boxes = FT(bs, self.nA, nG, nG, 4)
-        pred_conf = p[..., 4]  # Conf 置信度
-        pred_cls = p[..., 5]  # Class 类别   详见bbox_attrs
+        pred_conf = p[..., 4]  # Conf
+        pred_cls = p[..., 5:]  # Class
 
         # Training
         if targets is not None:
@@ -220,19 +214,17 @@ class YOLOLayer(nn.Module):
                 pred_boxes[..., 2] = x.data + gx + width / 2
                 pred_boxes[..., 3] = y.data + gy + height / 2
 
-            # TC:target category
-            # t: target
-            tx, ty, tw, th, tconf, tcls, TP, FP, FN, TC = \
-                utils.build_targets(pred_boxes, pred_conf, pred_cls, targets,
-                                    self.scaled_anchors, self.nA,
-                                    self.nC, nG, batch_report)
-            tcls = tcls[tconf]
+            tx, ty, tw, th, mask, tcls, TP, FP, FN, TC = \
+                utils.build_targets(pred_boxes, pred_conf, pred_cls, targets, self.scaled_anchors, self.nA, self.nC, nG,
+                              batch_report)
+            tcls = tcls[mask]
             if x.is_cuda:
-                tx, ty, tw, th, tconf, tcls = tx.cuda(), ty.cuda(), tw.cuda(), th.cuda(), tconf.cuda(), tcls.cuda()
-            mask = tconf
-            # 计算损失 Compute losses
+                tx, ty, tw, th, mask, tcls = tx.cuda(), ty.cuda(), tw.cuda(), th.cuda(), mask.cuda(), tcls.cuda()
+
+            # Compute losses
             nT = sum([len(x) for x in targets])  # number of targets
-            nM = mask.sum().float()  # number of anchors(assigned to targets)
+            nM = mask.sum().float()  # number of anchors (assigned to targets)
+            # print("mask:-----------",nM)
             nB = len(targets)  # batch size
             k = nM / nB
             if nM > 0:
@@ -240,10 +232,26 @@ class YOLOLayer(nn.Module):
                 ly = k * MSELoss(y[mask], ty[mask])
                 lw = k * MSELoss(w[mask], tw[mask])
                 lh = k * MSELoss(h[mask], th[mask])
+
+                # self.tx.extend(tx[mask].data.numpy())
+                # self.ty.extend(ty[mask].data.numpy())
+                # self.tw.extend(tw[mask].data.numpy())
+                # self.th.extend(th[mask].data.numpy())
+                # print([np.mean(self.tx), np.std(self.tx)],[np.mean(self.ty), np.std(self.ty)],[np.mean(self.tw), np.std(self.tw)],[np.mean(self.th), np.std(self.th)])
+                # [0.5040668, 0.2885492] [0.51384246, 0.28328574] [-0.4754091, 0.57951087] [-0.25998235, 0.44858757]
+                # [0.50184494, 0.2858976] [0.51747805, 0.2896323] [0.12962963, 0.6263085] [-0.2722081, 0.61574113]
+                # [0.5032071, 0.28825334] [0.5063132, 0.2808862] [0.21124361, 0.44760725] [0.35445485, 0.6427766]
+                # import matplotlib.pyplot as plt
+                # plt.hist(self.x)
+
+                # lconf = k * BCEWithLogitsLoss(pred_conf[mask], mask[mask].float())
+
                 lcls = (k / 4) * CrossEntropyLoss(pred_cls[mask], torch.argmax(tcls, 1))
+                # lcls = (k * 10) * BCEWithLogitsLoss(pred_cls[mask], tcls.float())
             else:
                 lx, ly, lw, lh, lcls, lconf = FT([0]), FT([0]), FT([0]), FT([0]), FT([0]), FT([0])
 
+            # lconf += k * BCEWithLogitsLoss(pred_conf[~mask], mask[~mask].float())
             lconf = (k * 64) * BCEWithLogitsLoss(pred_conf, mask.float())
 
             # Sum loss components
@@ -251,6 +259,7 @@ class YOLOLayer(nn.Module):
             if balance_losses_flag:
                 k = 1 / self.loss_means.clone()
                 loss = (lx * k[0] + ly * k[1] + lw * k[2] + lh * k[3] + lconf * k[4] + lcls * k[5]) / k.mean()
+
                 self.loss_means = self.loss_means * 0.99 + \
                                   FT([lx.data, ly.data, lw.data, lh.data, lconf.data, lcls.data]) * 0.01
             else:
@@ -262,21 +271,168 @@ class YOLOLayer(nn.Module):
                 i = torch.sigmoid(pred_conf[~mask]) > 0.5
                 if i.sum() > 0:
                     FP_classes = torch.argmax(pred_cls[~mask][i], 1)
-                    FPe = torch.bincount(FP_classes, minlength=self.nC).float().cpu()  # 返回每个数的频数  格外的FPs
+                    FPe = torch.bincount(FP_classes, minlength=self.nC).float().cpu()  # extra FPs
 
             return loss, loss.item(), lx.item(), ly.item(), lw.item(), lh.item(), lconf.item(), lcls.item(), \
                    nT, TP, FP, FPe, FN, TC
+
         else:
             pred_boxes[..., 0] = x.data + self.grid_x
             pred_boxes[..., 1] = y.data + self.grid_y
             pred_boxes[..., 2] = width
             pred_boxes[..., 3] = height
 
-            # 如果没有在训练阶段返回预测
+            # If not in training phase return predictions
             output = torch.cat((pred_boxes.view(bs, -1, 4) * stride,
-                                torch.sigmoid(pred_conf.view(bs, -1, 1)),
-                                pred_cls.view(bs, -1, self.nC)), -1)
+                                torch.sigmoid(pred_conf.view(bs, -1, 1)), pred_cls.view(bs, -1, self.nC)), -1)
             return output.data
+#
+# class YOLOLayer(nn.Module):
+#     """Placeholder for 'YOLO'  用于检测"""
+#
+#     def __init__(self, anchors, num_classes, img_dim, anchor_idxs):
+#         super(YOLOLayer, self).__init__()
+#
+#         anchors = [(a_w, a_h) for a_w, a_h in anchors]
+#         num_anchors = len(anchors)
+#
+#         self.anchors = anchors
+#         self.nA = num_anchors  # number of anchors  (3)
+#         self.nC = num_classes  # number of classes  (80)
+#         self.bbox_attrs = 5 + num_classes  # (85)
+#         self.img_dim = img_dim  # from net_hyperparams in cfg file,Not from parser
+#
+#         if anchor_idxs[0] == (num_anchors * 2):  # 6
+#             stride = 32
+#         elif anchor_idxs[0] == num_anchors:  # 3
+#             stride = 16
+#         else:
+#             stride = 8
+#
+#         # 建立anchor坐标
+#         nG = int(self.img_dim / stride)  # number of grid points
+#         self.grid_x = torch.arange(nG).repeat(nG, 1).view([1, 1, nG, nG]).float()
+#         self.grid_y = torch.arange(nG).repeat(nG, 1).t().view([1, 1, nG, nG]).float()
+#         self.scaled_anchors = torch.FloatTensor([(a_w / stride, a_h / stride) for a_w, a_h in anchors])
+#         self.anchors_w = self.scaled_anchors[:, 0:1].view((1, num_anchors, 1, 1))
+#         self.anchors_h = self.scaled_anchors[:, 1:2].view((1, num_anchors, 1, 1))
+#         self.weights = utils.class_weights()
+#
+#         self.loss_means = torch.ones(6)
+#         self.tx, self.ty, self.tw, self.th = [], [], [], []
+#
+#     def forward(self, p, targets=None, batch_report=False, var=None):
+#         FT = torch.cuda.FloatTensor if p.is_cuda else torch.FloatTensor
+#         # p(12,255,13,13)
+#         bs = p.shape[0]  # batch size
+#         nG = p.shape[2]  # number of grid points
+#         stride = self.img_dim / nG
+#
+#         if p.is_cuda and not self.grid_x.is_cuda:
+#             self.grid_x, self.grid_y = self.grid_x.cuda(), self.grid_y.cuda()
+#             self.anchors_w, self.anchors_h = self.anchors_w.cuda(), self.anchors_h.cuda()
+#             self.weights, self.loss_means = self.weights.cuda(), self.loss_means.cuda()
+#
+#         # p.view(12, 3, 85, 13, 13) -- > (12, 3, 13, 13, 85)  # (bs, anchors, grid, grid, classes + xywh)
+#         p = p.view(bs, self.nA, self.bbox_attrs, nG, nG).permute(0, 1, 3, 4, 2).contiguous  # prediction
+#
+#         # Get outputs                 #由于permute倒置了，所以xywh在0,1,2,3
+#         x = torch.sigmoid(p[..., 0])  # Center x
+#         y = torch.sigmoid(p[..., 1])  # Center y
+#         # print("====================")
+#         # print(x)
+#         # print("--------------------")
+#         # print(y)
+#         # print("====================")
+#
+#         # Width and height (yolo method)
+#         w = p[..., 2]  # width
+#         h = p[..., 3]  # height
+#         width = torch.exp(w.data) * self.anchors_w
+#         height = torch.exp(h.data) * self.anchors_h
+#
+#         # Width and height (power method)
+#         # w = torch.sigmoid(p[..., 2])  # Width
+#         # h = torch.sigmoid(p[..., 3])  # Height
+#         # width = ((w.data * 2) ** 2) * self.anchor_w
+#         # height = ((h.data * 2) ** 2) * self.anchor_h
+#
+#         # Add offset and scale with anchors (in grid space,i.e. 0-13)
+#         pred_boxes = FT(bs, self.nA, nG, nG, 4)
+#         pred_conf = p[..., 4]  # Conf 置信度
+#         pred_cls = p[..., 5]  # Class 类别   详见bbox_attrs
+#
+#         # Training
+#         if targets is not None:
+#             MSELoss = nn.MSELoss()
+#             BCEWithLogitsLoss = nn.BCEWithLogitsLoss()
+#             CrossEntropyLoss = nn.CrossEntropyLoss()
+#
+#             if batch_report:
+#                 gx = self.grid_x[:, :, :nG, :nG]
+#                 gy = self.grid_y[:, :, :nG, :nG]
+#                 pred_boxes[..., 0] = x.data + gx - width / 2
+#                 pred_boxes[..., 1] = y.data + gy - height / 2
+#                 pred_boxes[..., 2] = x.data + gx + width / 2
+#                 pred_boxes[..., 3] = y.data + gy + height / 2
+#
+#             # TC:target category
+#             # t: target
+#             tx, ty, tw, th, tconf, tcls, TP, FP, FN, TC = \
+#                 utils.build_targets(pred_boxes, pred_conf, pred_cls, targets,
+#                                     self.scaled_anchors, self.nA,
+#                                     self.nC, nG, batch_report)
+#             tcls = tcls[tconf]
+#             if x.is_cuda:
+#                 tx, ty, tw, th, tconf, tcls = tx.cuda(), ty.cuda(), tw.cuda(), th.cuda(), tconf.cuda(), tcls.cuda()
+#             mask = tconf
+#             # 计算损失 Compute losses
+#             nT = sum([len(x) for x in targets])  # number of targets
+#             nM = mask.sum().float()  # number of anchors(assigned to targets)
+#             nB = len(targets)  # batch size
+#             k = nM / nB
+#             if nM > 0:
+#                 lx = k * MSELoss(x[mask], tx[mask])
+#                 ly = k * MSELoss(y[mask], ty[mask])
+#                 lw = k * MSELoss(w[mask], tw[mask])
+#                 lh = k * MSELoss(h[mask], th[mask])
+#                 lcls = (k / 4) * CrossEntropyLoss(pred_cls[mask], torch.argmax(tcls, 1))
+#             else:
+#                 lx, ly, lw, lh, lcls, lconf = FT([0]), FT([0]), FT([0]), FT([0]), FT([0]), FT([0])
+#
+#             lconf = (k * 64) * BCEWithLogitsLoss(pred_conf, mask.float())
+#
+#             # Sum loss components
+#             balance_losses_flag = False
+#             if balance_losses_flag:
+#                 k = 1 / self.loss_means.clone()
+#                 loss = (lx * k[0] + ly * k[1] + lw * k[2] + lh * k[3] + lconf * k[4] + lcls * k[5]) / k.mean()
+#                 self.loss_means = self.loss_means * 0.99 + \
+#                                   FT([lx.data, ly.data, lw.data, lh.data, lconf.data, lcls.data]) * 0.01
+#             else:
+#                 loss = lx + ly + lw + lh + lconf + lcls
+#
+#             # Sum False Positives from unassigned anchors
+#             FPe = torch.zeros(self.nC)
+#             if batch_report:
+#                 i = torch.sigmoid(pred_conf[~mask]) > 0.5
+#                 if i.sum() > 0:
+#                     FP_classes = torch.argmax(pred_cls[~mask][i], 1)
+#                     FPe = torch.bincount(FP_classes, minlength=self.nC).float().cpu()  # 返回每个数的频数  格外的FPs
+#
+#             return loss, loss.item(), lx.item(), ly.item(), lw.item(), lh.item(), lconf.item(), lcls.item(), \
+#                    nT, TP, FP, FPe, FN, TC
+#         else:
+#             pred_boxes[..., 0] = x.data + self.grid_x
+#             pred_boxes[..., 1] = y.data + self.grid_y
+#             pred_boxes[..., 2] = width
+#             pred_boxes[..., 3] = height
+#
+#             # 如果没有在训练阶段返回预测
+#             output = torch.cat((pred_boxes.view(bs, -1, 4) * stride,
+#                                 torch.sigmoid(pred_conf.view(bs, -1, 1)),
+#                                 pred_cls.view(bs, -1, self.nC)), -1)
+#             return output.data
 
 
 class Darknet(nn.Module):
