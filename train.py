@@ -217,8 +217,8 @@ def train(
                     latest_weights_file,
                     backup_file_path,
                 ))
-                model.save_weights("%s/yolov3_sparsity_%d.weights" % ('weights', epoch))
-                print("save weights in %s/yolov3_sparsity_%d.weights" % ('weights', epoch))
+                model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weight', epoch))
+                print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weight', epoch))
             # Calculate mAP
             mAP, R, P = test.test(
                 net_config_path,

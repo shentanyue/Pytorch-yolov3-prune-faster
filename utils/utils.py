@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-
-
+import os
+import torch.nn.functional as F
 def class_weights():
     """
     COCO train2014每个样本类的频率
@@ -79,6 +79,7 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     b2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1)
 
     return inter_area / (b1_area + b2_area - inter_area + 1e-16)
+
 
 def build_targets(pred_boxes, pred_conf, pred_cls, target, anchor_wh, nA, nC, nG, batch_report):
     """return tx, ty, tw, th, tconf, tcls, nCorrect, nT:number of targets """
@@ -186,6 +187,7 @@ def model_info(model):  # Plots a line-by-line description of a PyTorch model
         print('%5g %50s %9s %12g %20s %12.3g %12.3g' % (
             i, name, p.requires_grad, p.numel(), list(p.shape), p.mean(), p.std()))
     print('Model Summary: %g layers, %g parameters, %g gradients\n' % (i + 1, n_p, n_g))
+
 
 def load_classes(path):
     """
@@ -405,3 +407,56 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
                     (output[image_i], max_detections))
 
     return output
+
+
+def write_cfg(cfgfile, cfg):
+    with open(cfgfile, 'r') as f:
+        lines = f.read().split('\n')  # store the lines in a list
+        lines = [x for x in lines if len(x) > 0]  # get read of the empty lines
+        lines = [x for x in lines if x[0] != '#']  # get rid of comments
+        # lines = [x.rstrip().lstrip() for x in lines]  # get rid of fringe whitespaces\
+
+    block = {}
+    blocks = []
+    # D:/yolotest/cfg/yolov3.cfg
+    prunedcfg = os.path.join('./'.join(cfgfile.split("/")[0:-1]), "prune_" + cfgfile.split("/")[-1])
+    for line in lines:
+        if line[0] == "[":  # This marks the start of a new block
+            if len(block) != 0:  # If block is not empty, implies it is storing values of previous block.
+                blocks.append(block)  # add it the blocks list
+                block = {}  # re-init the block
+            block["type"] = line[1:-1].rstrip()
+        else:
+            key, value = line.split("=")
+            block[key.rstrip()] = value.lstrip()
+    blocks.append(block)
+    x = 0
+    # print(blocks[1])
+    for block in blocks:
+        if 'batch_normalize' in block:
+            block['filters'] = cfg[x]
+            x = x + 1
+    ##
+    with open(prunedcfg, 'w') as f:
+        for block in blocks:
+            for i in block:
+                if i == "type":
+                    f.write('\n')
+                    f.write("[" + block[i] + "]\n")
+                    for j in block:
+                        if j != "type":
+                            f.write(j + "=" + str(block[j]) + '\n')
+    print('save pruned cfg file in %s' % prunedcfg)
+    return prunedcfg
+
+def route_problem(model,ind):
+    ds = list(model.children())
+    dsas = list(ds[0].children())
+    # print(dsas[90])
+    sum1 = 0
+    for k in range(ind+1):
+        for i in dsas[k].named_children():
+            if "_".join(i[0].split("_")[0:-1]) == 'conv_with_bn':
+                sum1 = sum1 + 1
+    #print(sum1)
+    return sum1-1

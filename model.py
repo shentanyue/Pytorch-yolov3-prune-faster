@@ -75,7 +75,7 @@ def create_modules(module_blocks):
         elif module_block['type'] == 'route':
             layers = [int(x) for x in module_block['layers'].split(',')]
             filters = sum([output_filters[layers_i] for layers_i in layers])
-            modules.add_module('route_%d' % index, EmptyLayer())
+            modules.add_module('route_%d' % index, Route())
 
         # Shortcut层
         #   [shortcut]
@@ -83,7 +83,7 @@ def create_modules(module_blocks):
         #   activation = linear
         elif module_block['type'] == 'shortcut':
             filters = output_filters[int(module_block['from'])]
-            modules.add_module('shortcut_%d' % index, EmptyLayer())
+            modules.add_module('shortcut_%d' % index, ShortcutLayer())
 
         # Yolo层
         #     [yolo]
@@ -111,6 +111,16 @@ def create_modules(module_blocks):
         output_filters.append(filters)
 
     return net_hyperparams, module_list
+
+
+class Route(nn.Module):
+    def __init__(self):
+        super(Route, self).__init__()
+
+
+class ShortcutLayer(nn.Module):
+    def __init__(self):
+        super(ShortcutLayer, self).__init__()
 
 
 class EmptyLayer(nn.Module):
@@ -340,6 +350,11 @@ class Darknet(nn.Module):
 
         # Open the weights file
         fp = open(weights_path, 'rb')
+        # The first 5 values are header information
+        # 1. Major version number
+        # 2. Minor Version Number
+        # 3. Subversion number
+        # 4,5. Images seen by the network (during training)
         header = np.fromfile(fp, dtype=np.int32, count=5)  # First five are header values
 
         # Needed to write header when saving weights
