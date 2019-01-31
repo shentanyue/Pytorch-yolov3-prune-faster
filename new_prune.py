@@ -3,14 +3,14 @@ import argparse
 from model import *
 import torch.nn.functional as F
 import os
-
+os.environ['CUDA_VISIBLE_DEVICES']='1'
 
 def arg_parse():
     parser = argparse.ArgumentParser(description="YOLO v3 Prune")
     parser.add_argument("--cfg", dest="cfgfile", help="网络模型",
-                        default=r"D:/yolotest/cfg/yolov3.cfg", type=str)
+                        default='./cfg/yolov3.cfg', type=str)
     parser.add_argument("--weights", dest="weightsfile", help="权重文件",
-                        default=r"D:/yolotest/yolov3.weights", type=str)
+                        default='./sparsity_weights/yolov3_sparsity_18.weights', type=str)
     parser.add_argument('--percent', type=float, default=0.5, help='剪枝的比例')
     return parser.parse_args()
 
@@ -42,11 +42,11 @@ for i in range(len(nnlist)):
 y, i = torch.sort(bn)
 thre_index = int(total * args.percent)
 thre = y[thre_index].cuda()
-print(y)
+# print(y)
 pruned = 0
 cfg = []
 cfg_mask = []
-print(thre)
+# print(thre)
 print('--' * 30)
 print("Pre-processing...")
 # 处理bias值
@@ -108,16 +108,16 @@ for i in range(len(nnlist)):
                 mean = nnlist[i + 1][1].running_mean - activations
                 mean = mean.view(-1)
                 nnlist[i + 1][1].running_mean = mean
-    else:
-        for name in nnlist[i].named_children():
-            if "_".join(name[0].split("_")[0:-1]) == 'batch_norm':
-                dontp = name[1].weight.data.numel()
-                mask = torch.ones(name[1].weight.data.shape)
-                print('layer index: {:d} \t total channel: {:d} \t remaining channel: {:d}'.
-                      format(i, dontp, int(dontp)))
-                cfg.append(int(dontp))
-                cfg_mask.append(mask.clone())
-
+        # else:
+        #     for name in nnlist[i].named_children():
+        #         if "_".join(name[0].split("_")[0:-1]) == 'batch_norm':
+        #             dontp = name[1].weight.data.numel()
+        #             mask = torch.ones(name[1].weight.data.shape)
+        #             #print('layer index: {:d} \t total channel: {:d} \t remaining channel: {:d}'.
+        #             #      format(i, dontp, int(dontp)))
+        #             cfg.append(int(dontp))
+        #             cfg_mask.append(mask.clone())
+print(cfg)
 pruned_ratio = pruned / total
 print('Pre-processing Successful!')
 print('--' * 30)
@@ -162,11 +162,6 @@ for layer_id in range(len(old_modules)):
                     cfg_mask3 = torch.cat((cfg_mask1, cfg_mask2), 1)
                     cfg_mask1 = cfg_mask3.squeeze(0)
                 start_mask = cfg_mask1.clone()
-            # elif name[0].split("_")[0] == 'reorg':
-            #     stride = name[1].stride
-            #     cfg_mask[layer_id_in_cfg - 1] = torch.squeeze(
-            #         start_mask.expand(int(stride * stride), int(start_mask.size(0))).transpose(1, 0).contiguous().view(
-            #             1, -1))
             elif "_".join(name[0].split("_")[0:-1]) == 'conv_with_bn':
                 idx0 = np.squeeze(np.argwhere(np.asarray(start_mask.cpu().numpy())))
                 idx1 = np.squeeze(np.argwhere(np.asarray(end_mask.cpu().numpy())))

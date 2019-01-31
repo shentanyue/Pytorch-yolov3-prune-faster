@@ -1,4 +1,4 @@
-#coding=utf-8
+# coding=utf-8
 from utils import parse_config
 import torch.nn as nn
 import torch
@@ -76,15 +76,36 @@ def create_modules(module_blocks):
         elif module_block['type'] == 'route':
             layers = [int(x) for x in module_block['layers'].split(',')]
             filters = sum([output_filters[layers_i] for layers_i in layers])
-            modules.add_module('route_%d' % index, Route())
+            modules.add_module('route_%d' % index, Route(layers))
+            # module_block["layers"] = module_block["layers"].split(',')
+            # # Start of a route
+            # start = int(module_block["layers"][0])
+            # # end, if there exists one.
+            # try:
+            #     end = int(module_block["layers"][1])
+            # except:
+            #     end = 0
+            # # Positive anotation
+            # if start > 0:
+            #     start = start - index
+            # if end > 0:
+            #     end = end - index
+            # route = Route([start, end])
+            # modules.add_module("route_{0}".format(index), route)
+            # if end < 0:
+            #     filters = output_filters[index + start] + output_filters[index + end]
+            # else:
+            #     filters = output_filters[index + start]
 
         # Shortcut层
         #   [shortcut]
         #   from=-3
         #   activation = linear
         elif module_block['type'] == 'shortcut':
+            froms = int(module_block['from'])
             filters = output_filters[int(module_block['from'])]
-            modules.add_module('shortcut_%d' % index, ShortcutLayer())
+            modules.add_module('shortcut_%d' % index, ShortcutLayer(froms))
+
 
         # Yolo层
         #     [yolo]
@@ -115,13 +136,15 @@ def create_modules(module_blocks):
 
 
 class Route(nn.Module):
-    def __init__(self):
+    def __init__(self, layers):
         super(Route, self).__init__()
+        self.layers = layers
 
 
 class ShortcutLayer(nn.Module):
-    def __init__(self):
+    def __init__(self, froms):
         super(ShortcutLayer, self).__init__()
+        self.froms = froms
 
 
 class EmptyLayer(nn.Module):
@@ -216,7 +239,7 @@ class YOLOLayer(nn.Module):
 
             tx, ty, tw, th, mask, tcls, TP, FP, FN, TC = \
                 utils.build_targets(pred_boxes, pred_conf, pred_cls, targets, self.scaled_anchors, self.nA, self.nC, nG,
-                              batch_report)
+                                    batch_report)
             tcls = tcls[mask]
             if x.is_cuda:
                 tx, ty, tw, th, mask, tcls = tx.cuda(), ty.cuda(), tw.cuda(), th.cuda(), mask.cuda(), tcls.cuda()
@@ -286,6 +309,8 @@ class YOLOLayer(nn.Module):
             output = torch.cat((pred_boxes.view(bs, -1, 4) * stride,
                                 torch.sigmoid(pred_conf.view(bs, -1, 1)), pred_cls.view(bs, -1, self.nC)), -1)
             return output.data
+
+
 #
 # class YOLOLayer(nn.Module):
 #     """Placeholder for 'YOLO'  用于检测"""
@@ -444,6 +469,8 @@ class Darknet(nn.Module):
         self.module_blocks[0]['height'] = img_size
         self.net_hyperparams, self.module_list = create_modules(self.module_blocks)
         self.img_size = img_size
+        self.seen = 0
+        self.header_info = np.array([0, 0, 0, self.seen, 0])
         self.loss_names = ['loss', 'x', 'y', 'w', 'h', 'conf', 'cls', 'nT', 'TP', 'FP', 'FPe', 'FN', 'TC']
 
     def forward(self, x, targets=None, batch_report=False, var=0):
@@ -524,7 +551,11 @@ class Darknet(nn.Module):
         for i, (module_block, module) in enumerate(zip(self.module_blocks[:cutoff], self.module_list[:cutoff])):
             if module_block['type'] == 'convolutional':
                 conv_layer = module[0]
-                if module_block['batch_normalize']:
+                try:
+                    batch_normalize = int(self.module_blocks[i]["batch_normalize"])
+                except:
+                    batch_normalize = 0
+                if batch_normalize:
                     # Load BN bias,weights,running mean and running variance
                     bn_layer = module[1]
                     num_b = bn_layer.bias.numel()  # Number of biases
@@ -561,7 +592,7 @@ class Darknet(nn.Module):
     #     fp = open(path, 'wb')
     #     self.header_info[3] = self.seen
     #     self.header_info.tofile(fp)
-    # 
+    #
     #     # Iterate throught layers
     #     for i, (module_block, module) in enumerate(zip(self.module_blocks[:cutoff], self.module_list[:cutoff])):
     #         if module_block['type'] == 'convolutional':
@@ -578,34 +609,64 @@ class Darknet(nn.Module):
     #                 conv_layer.bias.data.cpu().numpy().tofile(fp)
     #             # LOAD CONV WEIGHTS
     #             conv_layer.weight.data.cpu().numpy().tofile(fp)
-    # 
+    #
+    #     fp.close()
+
+    # def save_weights(self, path, cutoff=-1):
+    #     """save layers between 0 and cutoff (cutoff = -1 -> all are saved)"""
+    #     fp = open(path, 'wb')
+    #     self.header_info[3] = self.seen
+    #     self.header_info.tofile(fp)
+    #     for i in range(len(self.module_list[:cutoff])):
+    #         module_type = self.module_blocks[i + 1]["type"]
+    #         # If module_type is convolutional load weights
+    #         # Otherwise ignore.
+    #         if module_type == "convolutional":
+    #             model = self.module_list[i]
+    #             try:
+    #                 batch_normalize = int(self.module_blocks[i + 1]["batch_normalize"])
+    #             except:
+    #                 batch_normalize = 0
+    #             conv = model[0]
+    #             if (batch_normalize):
+    #                 bn = model[1]
+    #                 bn.bias.data.cpu().numpy().tofile(fp)
+    #                 bn.weight.data.cpu().numpy().tofile(fp)
+    #                 bn.running_mean.data.cpu().numpy().tofile(fp)
+    #                 bn.running_var.data.cpu().numpy().tofile(fp)
+    #             else:
+    #                 conv.bias.data.cpu().numpy().tofile(fp)
+    #             conv.weight.data.cpu().numpy().tofile(fp)
     #     fp.close()
 
     def save_weights(self, path, cutoff=-1):
-        """save layers between 0 and cutoff (cutoff = -1 -> all are saved)"""
         fp = open(path, 'wb')
         self.header_info[3] = self.seen
         self.header_info.tofile(fp)
-        for i in range(len(self.module_list[:cutoff])):
-            module_type = self.blocks[i + 1]["type"]
-            # If module_type is convolutional load weights
-            # Otherwise ignore.
-            if module_type == "convolutional":
-                model = self.module_list[i]
+
+        # Iterate through layers
+        for i, (module_blocks, module) in enumerate(zip(self.module_blocks[:cutoff], self.module_list[:cutoff])):
+            if module_blocks['type'] == 'convolutional':
                 try:
-                    batch_normalize = int(self.blocks[i + 1]["batch_normalize"])
+                    batch_normalize = int(self.module_blocks[i]["batch_normalize"])
                 except:
                     batch_normalize = 0
-                conv = model[0]
-                if (batch_normalize):
-                    bn = model[1]
-                    bn.bias.data.cpu().numpy().tofile(fp)
-                    bn.weight.data.cpu().numpy().tofile(fp)
-                    bn.running_mean.data.cpu().numpy().tofile(fp)
-                    bn.running_var.data.cpu().numpy().tofile(fp)
+                print('batchnorm:', batch_normalize)
+                conv_layer = module[0]
+                # If batch norm, load bn first
+                if batch_normalize:
+                    bn_layer = module[1]
+                    bn_layer.bias.data.cpu().numpy().tofile(fp)
+                    bn_layer.weight.data.cpu().numpy().tofile(fp)
+                    bn_layer.running_mean.data.cpu().numpy().tofile(fp)
+                    bn_layer.running_var.data.cpu().numpy().tofile(fp)
+
+                # Load conv bias
                 else:
-                    conv.bias.data.cpu().numpy().tofile(fp)
-                conv.weight.data.cpu().numpy().tofile(fp)
+                    conv_layer.bias.data.cpu().numpy().tofile(fp)
+                # Load conv weights
+                conv_layer.weight.data.cpu().numpy().tofile(fp)
+
         fp.close()
 
 

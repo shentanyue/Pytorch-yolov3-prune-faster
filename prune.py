@@ -8,13 +8,13 @@ import argparse
 import os
 from model import *
 
-
+os.environ['CUDA_VISIBLE_DEVICES']='1'
 def arg_parse():
     parser = argparse.ArgumentParser(description="YOLO v3 Prune")
     parser.add_argument("--cfg", dest="cfgfile", help="????",
                         default='./cfg/yolov3.cfg', type=str)
     parser.add_argument("--weights", dest="weightsfile", help="????",
-                        default='./sparsity_weight/yolov3_sparsity_2.weights', type=str)
+                        default='./sparsity_weights/yolov3_sparsity_18.weights', type=str)
     parser.add_argument('--percent', type=float, default=0.3, help='剪枝的比例')
     return parser.parse_args()
 
@@ -107,31 +107,31 @@ for layer_id in range(len(old_modules)):
             end_mask = cfg_mask[layer_id_in_cfg]
     elif isinstance(m0, nn.Sequential):
         for name in m0.named_children():
-            if name[0].split("_")[0] == 'route':
-                # print(old_modules[layer_id + 1].layers)
-                # print(m0)
-                ind = v + old_modules[layer_id + 1].layers[0]
-                # print(ind)
-                cfg_mask1 = cfg_mask[route_problem(model, ind)]
-                # print(cfg_mask1.shape)
-                if old_modules[layer_id + 1].layers[1] != 0:
-                    ind = v + old_modules[layer_id + 1].layers[1]
-                    # print(ind)
-                    cfg_mask1 = cfg_mask1.unsqueeze(0)
-                    # print(cfg_mask1.shape)
-                    cfg_mask2 = cfg_mask[route_problem(model, ind)].unsqueeze(0).cuda()
-                    # print(cfg_mask2.shape)
-                    cfg_mask3 = torch.cat((cfg_mask1, cfg_mask2), 1)
-                    # print(cfg_mask3.shape)
-                    cfg_mask1 = cfg_mask3.squeeze(0)
-                    # print(cfg_mask1.shape)
-                start_mask = cfg_mask1.clone()
+            # if name[0].split("_")[0] == 'route':
+            #     # print(old_modules[layer_id + 1].layers)
+            #     # print(m0)
+            #     ind = v + old_modules[layer_id + 1].layers[0]
+            #     # print(ind)
+            #     cfg_mask1 = cfg_mask[route_problem(model, ind)]
+            #     # print(cfg_mask1.shape)
+            #     if old_modules[layer_id + 1].layers[1] != 0:
+            #         ind = v + old_modules[layer_id + 1].layers[1]
+            #         # print(ind)
+            #         cfg_mask1 = cfg_mask1.unsqueeze(0)
+            #         # print(cfg_mask1.shape)
+            #         cfg_mask2 = cfg_mask[route_problem(model, ind)].unsqueeze(0).cuda()
+            #         # print(cfg_mask2.shape)
+            #         cfg_mask3 = torch.cat((cfg_mask1, cfg_mask2), 1)
+            #         # print(cfg_mask3.shape)
+            #         cfg_mask1 = cfg_mask3.squeeze(0)
+            #         # print(cfg_mask1.shape)
+            #     start_mask = cfg_mask1.clone()
             # elif name[0].split("_")[0] == 'reorg':
             #     stride = name[1].stride
             #     cfg_mask[layer_id_in_cfg - 1] = torch.squeeze(
             #         start_mask.expand(int(stride * stride), int(start_mask.size(0))).transpose(1, 0).contiguous().view(
             #             1, -1))
-            elif "_".join(name[0].split("_")[0:-1]) == 'conv_with_bn':
+            if "_".join(name[0].split("_")[0:-1]) == 'conv_with_bn':
                 idx0 = np.squeeze(np.argwhere(np.asarray(start_mask.cpu().numpy())))
                 idx1 = np.squeeze(np.argwhere(np.asarray(end_mask.cpu().numpy())))
                 print('Conv In shape: {:d}, Out shape {:d}.'.format(idx0.size, idx1.size))

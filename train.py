@@ -20,6 +20,7 @@ DARKNET_WEIGHTS_URL = 'https://pjreddie.com/media/files/{}'.format(DARKNET_WEIGH
 def updateBN(model, s):
     for m in model.modules():
         if isinstance(m, nn.BatchNorm2d):
+            # print(1)
             m.weight.grad.data.add_(s * torch.sign(m.weight.data))  # L1 Sparsity
 
 
@@ -198,7 +199,8 @@ def train(
                       'model': model.state_dict(),
                       'optimizer': optimizer.state_dict()}
         torch.save(checkpoint, latest_weights_file)
-
+        model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights_new', epoch))
+        print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights_new', epoch))
         # Save best checkpoint
 
         # Save best checkpoint
@@ -216,8 +218,8 @@ def train(
                 latest_weights_file,
                 backup_file_path,
             ))
-            model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weight', epoch))
-            print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weight', epoch))
+            # model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch))
+            # print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch))
         # Calculate mAP
         mAP, R, P = test.test(
             net_config_path,
@@ -238,7 +240,7 @@ def train(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=20, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=21, help='number of epochs')
     parser.add_argument('--batch-size', type=int, default=16, help='size of each image batch')
     parser.add_argument('--data-config', type=str, default='cfg/coco.data', help='path to data config file')
     parser.add_argument('--cfg', type=str, default='cfg/yolov3.cfg', help='cfg file path')

@@ -420,7 +420,8 @@ def write_cfg(cfgfile, cfg):
     block = {}
     blocks = []
     # D:/yolotest/cfg/yolov3.cfg
-    prunedcfg = os.path.join('./'.join(cfgfile.split("/")[0:-1]), "prune_" + cfgfile.split("/")[-1])
+    # prunedcfg = os.path.join('./'.join(cfgfile.split("/")[0:-1]), "prune_" + cfgfile.split("/")[-1])
+    prunedcfg = os.path.join("prune_" + cfgfile.split("/")[-1])
     for line in lines:
         if line[0] == "[":  # This marks the start of a new block
             if len(block) != 0:  # If block is not empty, implies it is storing values of previous block.

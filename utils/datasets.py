@@ -474,6 +474,7 @@ class load_images_and_labels():  # for training
         return torch.from_numpy(img_all), labels_all
 
     def __len__(self):
+        # return 10
         return self.nB  # number of batches
 
 
