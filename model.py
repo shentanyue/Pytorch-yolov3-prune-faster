@@ -74,6 +74,7 @@ def create_modules(module_blocks):
         #
         #   layers = -1, 61    或        layers = -4
         elif module_block['type'] == 'route':
+
             layers = [int(x) for x in module_block['layers'].split(',')]
             filters = sum([output_filters[layers_i] for layers_i in layers])
             modules.add_module('route_%d' % index, Route(layers))
@@ -651,7 +652,7 @@ class Darknet(nn.Module):
                     batch_normalize = int(self.module_blocks[i]["batch_normalize"])
                 except:
                     batch_normalize = 0
-                print('batchnorm:', batch_normalize)
+                # print('batchnorm:', batch_normalize)
                 conv_layer = module[0]
                 # If batch norm, load bn first
                 if batch_normalize:

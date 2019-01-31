@@ -10,8 +10,8 @@ def arg_parse():
     parser.add_argument("--cfg", dest="cfgfile", help="网络模型",
                         default='./cfg/yolov3.cfg', type=str)
     parser.add_argument("--weights", dest="weightsfile", help="权重文件",
-                        default='./sparsity_weights/yolov3_sparsity_18.weights', type=str)
-    parser.add_argument('--percent', type=float, default=0.5, help='剪枝的比例')
+                        default='./sparsity_weights_new/yolov3_sparsity_0.weights', type=str)
+    parser.add_argument('--percent', type=float, default=0.2, help='剪枝的比例')
     return parser.parse_args()
 
 
@@ -29,16 +29,19 @@ if CUDA:
 
 nnlist = model.module_list
 total = 0
+donntprune = utils.dontprune(model)
 for i in range(len(nnlist)):
     if 'conv_with_bn' in list(nnlist[i].named_children())[0][0]:
-        total += list(nnlist[i].named_children())[1][1].weight.data.shape[0]
+        if i not in donntprune:
+            total += list(nnlist[i].named_children())[1][1].weight.data.shape[0]
 bn = torch.zeros(total)
 index = 0
 for i in range(len(nnlist)):
     if 'conv_with_bn' in list(nnlist[i].named_children())[0][0]:
-        size = list(nnlist[i].named_children())[1][1].weight.data.shape[0]
-        bn[index:(index + size)] = list(nnlist[i].named_children())[1][1].weight.data.abs().clone()
-        index += size
+        if i not in donntprune:
+            size = list(nnlist[i].named_children())[1][1].weight.data.shape[0]
+            bn[index:(index + size)] = list(nnlist[i].named_children())[1][1].weight.data.abs().clone()
+            index += size
 y, i = torch.sort(bn)
 thre_index = int(total * args.percent)
 thre = y[thre_index].cuda()
@@ -52,71 +55,79 @@ print("Pre-processing...")
 # 处理bias值
 remain_bias_list = dict()
 for i in range(len(nnlist)):
-    for name in nnlist[i].named_children():
-        if "_".join(name[0].split("_")[0:-1]) == 'batch_norm':
-            weight_copy = name[1].weight.data.abs().clone()
-            mask = weight_copy.gt(thre).float().cuda()  # 掩模
-            if int(torch.sum(mask)) == 0:  # 如果该层所有都被剪掉的时候
-                mask[int(torch.argmax(weight_copy))] = 1.
-            pruned = pruned + mask.shape[0] - torch.sum(mask)
-            name[1].weight.data.mul_(mask)  # 直接修改γ，
-            cfg.append(int(torch.sum(mask)))
-            cfg_mask.append(mask.clone())
-            print('layer index: {:d} \t total channel: {:d} \t remaining channel: {:d}'.
-                  format(i, mask.shape[0], int(torch.sum(mask))))
-            bias_mask = torch.ones_like(mask) - mask
-            remain_bias = bias_mask * name[1].bias.data
-            remain_bias_list[i] = remain_bias
-            for next_name in nnlist[i + 1].named_children():
-                if "_".join(next_name[0].split("_")[0:-1]) == 'conv_with_bn':
+    if i not in donntprune:
+        for name in nnlist[i].named_children():
+            if "_".join(name[0].split("_")[0:-1]) == 'batch_norm':
+                weight_copy = name[1].weight.data.abs().clone()
+                mask = weight_copy.gt(thre).float().cuda()  # 掩模
+                if int(torch.sum(mask)) == 0:  # 如果该层所有都被剪掉的时候
+                    mask[int(torch.argmax(weight_copy))] = 1.
+                pruned = pruned + mask.shape[0] - torch.sum(mask)
+                name[1].weight.data.mul_(mask)  # 直接修改γ，
+                cfg.append(int(torch.sum(mask)))
+                cfg_mask.append(mask.clone())
+                print('layer index: {:d} \t total channel: {:d} \t remaining channel: {:d}'.
+                      format(i, mask.shape[0], int(torch.sum(mask))))
+                bias_mask = torch.ones_like(mask) - mask
+                remain_bias = bias_mask * name[1].bias.data
+                remain_bias_list[i] = remain_bias
+                for next_name in nnlist[i + 1].named_children():
+                    if "_".join(next_name[0].split("_")[0:-1]) == 'conv_with_bn':
+                        activations = torch.mm(F.relu(remain_bias).view(1, -1),
+                                               next_name[1].weight.data.sum(dim=[2, 3]).transpose(1, 0).contiguous())
+                        mean = nnlist[i + 1][1].running_mean - activations
+                        mean = mean.view(-1)
+                        nnlist[i + 1][1].running_mean = mean
+                    elif "_".join(next_name[0].split("_")[0:-1]) == 'conv_without_bn':
+                        activations = torch.mm(F.relu(remain_bias).view(1, -1),
+                                               next_name[1].weight.data.sum(dim=[2, 3]).transpose(1, 0).contiguous())
+                        bias = next_name[1].bias.data + activations
+                        bias = bias.view(-1)
+                        next_name[1].bias.data = bias
+                    elif next_name[0].split("_")[0] == 'maxpool':
+                        activations = torch.mm(F.relu(remain_bias).view(1, -1),
+                                               nnlist[i + 2][0].weight.sum(dim=[2, 3]).transpose(1, 0).contiguous())
+                        mean = nnlist[i + 2][1].running_mean - activations
+                        mean = mean.view(-1)
+                        nnlist[i + 2][1].running_mean = mean
+                    elif next_name[0].split("_")[0] == 'reorg':
+                        stride = next_name[1].stride
+                        remain_bias_list[i + 1] = torch.squeeze(
+                            remain_bias.expand(int(stride * stride), int(remain_bias.size(0))).transpose(1,
+                                                                                                         0).contiguous().view(
+                                1, -1))
+            elif name[0].split("_")[0] == 'route':
+                try:
+                    end=name[1].layer[1]
+                except:
+                    end=0
+                prev_1 = name[1].layers[0] + i
+                have_prev_2 = False
+                # print(name[1])
+                # print(name[1].layers)
+                if end != 0:
+                    prev_2 = name[1].layers[1] + i
+                    have_prev_2 = True
+                if isinstance(nnlist[prev_1][0], nn.Conv2d):
+                    if not have_prev_2:
+                        remain_bias = remain_bias_list[prev_1]
+                    else:
+                        remain_bias = torch.cat((remain_bias_list[prev_1], remain_bias_list[prev_2]), 0)
                     activations = torch.mm(F.relu(remain_bias).view(1, -1),
-                                           next_name[1].weight.data.sum(dim=[2, 3]).transpose(1, 0).contiguous())
+                                           nnlist[i + 1][0].weight.sum(dim=[2, 3]).transpose(1, 0).contiguous())
                     mean = nnlist[i + 1][1].running_mean - activations
                     mean = mean.view(-1)
                     nnlist[i + 1][1].running_mean = mean
-                elif "_".join(next_name[0].split("_")[0:-1]) == 'conv_without_bn':
-                    activations = torch.mm(F.relu(remain_bias).view(1, -1),
-                                           next_name[1].weight.data.sum(dim=[2, 3]).transpose(1, 0).contiguous())
-                    bias = next_name[1].bias.data + activations
-                    bias = bias.view(-1)
-                    next_name[1].bias.data = bias
-                elif next_name[0].split("_")[0] == 'maxpool':
-                    activations = torch.mm(F.relu(remain_bias).view(1, -1),
-                                           nnlist[i + 2][0].weight.sum(dim=[2, 3]).transpose(1, 0).contiguous())
-                    mean = nnlist[i + 2][1].running_mean - activations
-                    mean = mean.view(-1)
-                    nnlist[i + 2][1].running_mean = mean
-                elif next_name[0].split("_")[0] == 'reorg':
-                    stride = next_name[1].stride
-                    remain_bias_list[i + 1] = torch.squeeze(
-                        remain_bias.expand(int(stride * stride), int(remain_bias.size(0))).transpose(1,
-                                                                                                     0).contiguous().view(
-                            1, -1))
-        elif name[0].split("_")[0] == 'route':
-            prev_1 = name[1].layers[0] + i
-            have_prev_2 = False
-            if name[1].layers[1] != 0:
-                prev_2 = name[1].layers[1] + i
-                have_prev_2 = True
-            if isinstance(nnlist[prev_1][0], nn.Conv2d):
-                if not have_prev_2:
-                    remain_bias = remain_bias_list[prev_1]
-                else:
-                    remain_bias = torch.cat((remain_bias_list[prev_1], remain_bias_list[prev_2]), 0)
-                activations = torch.mm(F.relu(remain_bias).view(1, -1),
-                                       nnlist[i + 1][0].weight.sum(dim=[2, 3]).transpose(1, 0).contiguous())
-                mean = nnlist[i + 1][1].running_mean - activations
-                mean = mean.view(-1)
-                nnlist[i + 1][1].running_mean = mean
-        # else:
-        #     for name in nnlist[i].named_children():
-        #         if "_".join(name[0].split("_")[0:-1]) == 'batch_norm':
-        #             dontp = name[1].weight.data.numel()
-        #             mask = torch.ones(name[1].weight.data.shape)
-        #             #print('layer index: {:d} \t total channel: {:d} \t remaining channel: {:d}'.
-        #             #      format(i, dontp, int(dontp)))
-        #             cfg.append(int(dontp))
-        #             cfg_mask.append(mask.clone())
+    else:
+        for name in nnlist[i].named_children():
+            if "_".join(name[0].split("_")[0:-1]) == 'batch_norm':
+                dontp = name[1].weight.data.numel()
+                mask = torch.ones(name[1].weight.data.shape)
+                print('layer index: {:d} \t total channel: {:d} \t remaining channel: {:d}'.
+                            format(i, dontp, int(dontp)))
+                cfg.append(int(dontp))
+                cfg_mask.append(mask.clone())
+
 print(cfg)
 pruned_ratio = pruned / total
 print('Pre-processing Successful!')
@@ -154,9 +165,17 @@ for layer_id in range(len(old_modules)):
         for name in m0.named_children():
             if name[0].split("_")[0] == 'route':
                 ind = v + old_modules[layer_id + 1].layers[0]
+                # print('ind:',ind)
                 cfg_mask1 = cfg_mask[utils.route_problem(model, ind)]
-                if old_modules[layer_id + 1].layers[1] != 0:
-                    ind = v + old_modules[layer_id + 1].layers[1]
+                try:
+                    end=old_modules[layer_id + 1].layers[1]
+                except:
+                    end=0
+                if end != 0:
+                    ind = old_modules[layer_id + 1].layers[1]
+                    # print('ind2:',ind)
+                    # print('v:',v)
+                    # print('old_modules[layer_id + 1].layers[1]:',old_modules[layer_id + 1].layers[1])
                     cfg_mask1 = cfg_mask1.unsqueeze(0)
                     cfg_mask2 = cfg_mask[utils.route_problem(model, ind)].unsqueeze(0).cuda()
                     cfg_mask3 = torch.cat((cfg_mask1, cfg_mask2), 1)
@@ -190,7 +209,7 @@ for layer_id in range(len(old_modules)):
 print('--' * 30)
 print('prune done!')
 print('pruned ratio %.3f' % pruned_ratio)
-prunedweights = os.path.join('\\'.join(args.weightsfile.split("/")[0:-1]), "prune_" + args.weightsfile.split("/")[-1])
+prunedweights = os.path.join("prune_" + args.weightsfile.split("/")[-1])
 print('save weights file in %s' % prunedweights)
 newmodel.save_weights(prunedweights)
 print('done!')

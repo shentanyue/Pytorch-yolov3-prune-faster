@@ -454,11 +454,30 @@ def write_cfg(cfgfile, cfg):
 def route_problem(model,ind):
     ds = list(model.children())
     dsas = list(ds[0].children())
-    # print(dsas[90])
+
+    # print('-----------',dsas[90])
     sum1 = 0
+    # print(dsas[90].named_children())
     for k in range(ind+1):
+        # print('k:',k)
         for i in dsas[k].named_children():
+            # print('i:',i)
             if "_".join(i[0].split("_")[0:-1]) == 'conv_with_bn':
                 sum1 = sum1 + 1
     #print(sum1)
     return sum1-1
+
+
+def dontprune(model):
+
+    dontprune=[]
+    nnlist = model.module_list
+    for i in range(len(nnlist)):
+        for name in nnlist[i].named_children():
+            if name[0].split("_")[0] == 'shortcut':
+                if 'conv' in list(nnlist[name[1].froms+i].named_children())[0][0]:
+                    dontprune.append(name[1].froms+i)
+                else:
+                    dontprune.append(name[1].froms + i-1)
+                dontprune.append(i-1)
+    return dontprune
