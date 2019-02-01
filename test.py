@@ -21,6 +21,8 @@ def test(
         n_cpus=0,
 ):
     device = torch_utils.select_device()
+    # CUDA_AVAILABLE = torch_utils.check_cuda()
+    # device = torch.device('cuda:0' if CUDA_AVAILABLE else 'cpu')
     print("Using device: \"{}\"".format(device))
 
     # Configure run
@@ -37,7 +39,7 @@ def test(
         model.load_state_dict(checkpoint['model'])
         del checkpoint
     else:  # darknet format
-        model.load_weights(model, weights_file_path)
+        model.load_weights(weights_file_path)
 
     model.to(device).eval()
 
@@ -129,21 +131,27 @@ def test(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='test.py')
-    parser.add_argument('--batch-size', type=int, default=32, help='size of each image batch')
-    parser.add_argument('--cfg', type=str, default='cfg/yolov3.cfg', help='path to model config file')
+    parser.add_argument('--batch-size', type=int, default=8, help='size of each image batch')
+    parser.add_argument('--cfg', type=str, default='./cfg/yolov3.cfg', help='path to model config file')
     parser.add_argument('--data-config', type=str, default='cfg/coco.data', help='path to data config file')
-    parser.add_argument('--weights', type=str, default='weights/yolov3.pt', help='path to weights file')
+    parser.add_argument('--weights', type=str, default='./sparsity_weights_new/yolov3_sparsity_14.weights', help='path to weights file')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='iou threshold required to qualify as detected')
     parser.add_argument('--conf-thres', type=float, default=0.3, help='object confidence threshold')
     parser.add_argument('--nms-thres', type=float, default=0.45, help='iou threshold for non-maximum suppression')
-    parser.add_argument('--n-cpus', type=int, default=0, help='number of cpu threads to use during batch generation')
+    parser.add_argument('--n-cpus', type=int, default=4, help='number of cpu threads to use during batch generation')
     parser.add_argument('--img-size', type=int, default=416, help='size of each image dimension')
     opt = parser.parse_args()
     print(opt, end='\n\n')
 
-    # init_seeds()
 
-    mAP = test(
+    # init_seeds()
+    '''
+    prune_yolov3.cfg
+    prune_yolov3_sparsity_14.weights
+    ./cfg/yolov3.cfg
+    ./sparsity_weights_new/yolov3_sparsity_14.weights
+    '''
+    mAP,R,P = test(
         opt.cfg,
         opt.data_config,
         opt.weights,
@@ -154,3 +162,6 @@ if __name__ == '__main__':
         nms_thres=opt.nms_thres,
         n_cpus=opt.n_cpus,
     )
+    print(mAP)
+    print(R)
+    print(P)

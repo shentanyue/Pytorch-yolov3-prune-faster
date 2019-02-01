@@ -98,7 +98,7 @@ def train(
                 DARKNET_WEIGHTS_URL,
                 weights_path))
         assert os.path.isfile(def_weight_file)
-
+        def_weight_file='prune_yolov3_sparsity_14.weights'
         model.load_weights(def_weight_file)
 
         model.to(device).train()
@@ -169,14 +169,14 @@ def train(
                 # Precision
                 precision = TP / (TP + FP)
                 k = (TP + FP) > 0
-                print('k1:{}'.format(k))
+                # print('k1:{}'.format(k))
                 if k.sum() > 0:
                     mean_precision = precision[k].mean()
 
                 # Recall
                 recall = TP / (TP + FN)
                 k = (TP + FN) > 0
-                print('k2:{}'.format(k))
+                # print('k2:{}'.format(k))
                 if k.sum() > 0:
                     mean_recall = recall[k].mean()
 
@@ -199,7 +199,7 @@ def train(
                       'model': model.state_dict(),
                       'optimizer': optimizer.state_dict()}
         torch.save(checkpoint, latest_weights_file)
-        model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights_new', epoch))
+        model.save_weights("%s/yolov3_sparsity_%d.weights" % ('prune_refine', epoch))
         print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights_new', epoch))
         # Save best checkpoint
 
@@ -243,7 +243,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=21, help='number of epochs')
     parser.add_argument('--batch-size', type=int, default=16, help='size of each image batch')
     parser.add_argument('--data-config', type=str, default='cfg/coco.data', help='path to data config file')
-    parser.add_argument('--cfg', type=str, default='cfg/yolov3.cfg', help='cfg file path')
+    parser.add_argument('--cfg', type=str, default='prune_yolov3.cfg', help='cfg file path')
     parser.add_argument('--multi-scale', action='store_true', help='random image sizes per batch 320 - 608')
     parser.add_argument('--img-size', type=int, default=32 * 13, help='pixels')
     parser.add_argument('--weights-path', type=str, default='weights', help='path to store weights')
