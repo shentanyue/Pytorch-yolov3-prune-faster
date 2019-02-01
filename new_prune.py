@@ -10,8 +10,8 @@ def arg_parse():
     parser.add_argument("--cfg", dest="cfgfile", help="网络模型",
                         default='./cfg/yolov3.cfg', type=str)
     parser.add_argument("--weights", dest="weightsfile", help="权重文件",
-                        default='./sparsity_weights_new/yolov3_sparsity_0.weights', type=str)
-    parser.add_argument('--percent', type=float, default=0.2, help='剪枝的比例')
+                        default='./sparsity_weights_new/yolov3_sparsity_13.weights', type=str)
+    parser.add_argument('--percent', type=float, default=0.1, help='剪枝的比例')
     return parser.parse_args()
 
 
