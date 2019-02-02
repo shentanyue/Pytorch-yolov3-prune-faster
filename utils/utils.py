@@ -3,6 +3,8 @@ import numpy as np
 import torch
 import os
 import torch.nn.functional as F
+import cv2
+import random
 def class_weights():
     """
     COCO train2014每个样本类的频率
@@ -481,3 +483,45 @@ def dontprune(model):
                     dontprune.append(name[1].froms + i-1)
                 dontprune.append(i-1)
     return dontprune
+
+def coco_class_count(path='../coco/labels/train2014/'):
+    import glob
+
+    nC = 80  # number classes
+    x = np.zeros(nC, dtype='int32')
+    files = sorted(glob.glob('%s/*.*' % path))
+    for i, file in enumerate(files):
+        labels = np.loadtxt(file, dtype=np.float32).reshape(-1, 5)
+        x += np.bincount(labels[:, 0].astype('int32'), minlength=nC)
+        print(i, len(files))
+
+
+def plot_results():
+    # Plot YOLO training results file 'results.txt'
+    import glob
+    import numpy as np
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(16, 8))
+    s = ['X', 'Y', 'Width', 'Height', 'Objectness', 'Classification', 'Total Loss', 'Precision', 'Recall', 'mAP']
+    files = sorted(glob.glob('results*.txt'))
+    for f in files:
+        results = np.loadtxt(f, usecols=[2, 3, 4, 5, 6, 7, 8, 17, 18, 16]).T  # column 16 is mAP
+        n = results.shape[1]
+        for i in range(10):
+            plt.subplot(2, 5, i + 1)
+            plt.plot(range(1, n), results[i, 1:], marker='.', label=f)
+            plt.title(s[i])
+            if i == 0:
+                plt.legend()
+
+def plot_one_box(x, img, color=None, label=None, line_thickness=None):  # Plots one bounding box on image img
+    tl = line_thickness or round(0.002 * max(img.shape[0:2])) + 1  # line thickness
+    color = color or [random.randint(0, 255) for _ in range(3)]
+    c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
+    cv2.rectangle(img, c1, c2, color, thickness=tl)
+    if label:
+        tf = max(tl - 1, 1)  # font thickness
+        t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
+        c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
+        cv2.rectangle(img, c1, c2, color, -1)  # filled
+        cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)

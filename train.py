@@ -150,7 +150,7 @@ def train(
             loss = model(imgs.to(device), targets, batch_report=report, var=var)
             loss.backward()
             # Sparsity L1 loss
-            updateBN(model, 0.0001)
+            #updateBN(model, 0.0001)
             # 累积批次
             accumulated_batches = 4  # accumulate gradient for 4 batches before optimizing
             if ((i + 1) % accumulated_batches == 0) or (i == len(dataloader) - 1):
