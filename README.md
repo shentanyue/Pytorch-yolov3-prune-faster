@@ -1,4 +1,4 @@
-# Pytorch-yolov3-Prune-trainv3-
+# Pytorch-yolov3-Prune-trainv3
 
 use for prunning on the yolov3
 
