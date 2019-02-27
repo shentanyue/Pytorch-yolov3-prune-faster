@@ -9,7 +9,7 @@ from utils.utils import *
 from utils import torch_utils
 import torch
 import os
-
+# os.environ['CUDA_VISIBLE_DEVICES']='8'
 # Import test.py to get mAP after each epoch
 import test
 
@@ -98,7 +98,10 @@ def train(
                 DARKNET_WEIGHTS_URL,
                 weights_path))
         assert os.path.isfile(def_weight_file)
-        def_weight_file='prune_yolov3_sparsity_14.weights'
+
+
+        # def_weight_file='prune_yolov3_sparsity_14.weights'
+
         model.load_weights(def_weight_file)
 
         model.to(device).train()
@@ -114,7 +117,7 @@ def train(
         print(('%8s%12s' + '%10s' * 14) % ('Epoch', 'Batch', 'x', 'y', 'w', 'h', 'conf', 'cls', 'total', 'P', 'R',
                                            'nTargets', 'TP', 'FP', 'FN', 'time'))
 
-        if epoch > 10:
+        if epoch > 30:
             lr = lr0 / 10
         else:
             lr = lr0
@@ -149,8 +152,10 @@ def train(
             # compute loss,compute gradient,update parameters
             loss = model(imgs.to(device), targets, batch_report=report, var=var)
             loss.backward()
+
             # Sparsity L1 loss
-            #updateBN(model, 0.0001)
+            updateBN(model, 0.0001)
+
             # 累积批次
             accumulated_batches = 4  # accumulate gradient for 4 batches before optimizing
             if ((i + 1) % accumulated_batches == 0) or (i == len(dataloader) - 1):
@@ -199,8 +204,8 @@ def train(
                       'model': model.state_dict(),
                       'optimizer': optimizer.state_dict()}
         torch.save(checkpoint, latest_weights_file)
-        model.save_weights("%s/yolov3_sparsity_%d.weights" % ('prune_refine', epoch))
-        print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights_new', epoch))
+        model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights', epoch))
+        print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights', epoch))
         # Save best checkpoint
 
         # Save best checkpoint
@@ -240,10 +245,10 @@ def train(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=21, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=50, help='number of epochs')
     parser.add_argument('--batch-size', type=int, default=16, help='size of each image batch')
     parser.add_argument('--data-config', type=str, default='cfg/coco.data', help='path to data config file')
-    parser.add_argument('--cfg', type=str, default='prune_yolov3.cfg', help='cfg file path')
+    parser.add_argument('--cfg', type=str, default='cfg/yolov3.cfg', help='cfg file path')
     parser.add_argument('--multi-scale', action='store_true', help='random image sizes per batch 320 - 608')
     parser.add_argument('--img-size', type=int, default=32 * 13, help='pixels')
     parser.add_argument('--weights-path', type=str, default='weights', help='path to store weights')
@@ -254,6 +259,8 @@ if __name__ == '__main__':
     parser.add_argument('--s', type=float, default=0.0001, help='sparity')
     opt = parser.parse_args()
     print(opt, end='\n\n')
+
+    torch_utils.init_seeds()
 
     torch.cuda.empty_cache()
     train(

@@ -276,6 +276,8 @@ from utils.utils import xyxy2xywh
 #         print('%g/%g' % (i + 1, len(files)))
 #         cv2.imwrite(f.replace('.tif', '.bmp'), cv2.imread(f))
 #         os.system('rm -rf ' + f)
+
+
 import glob
 import math
 import os
@@ -289,7 +291,8 @@ import torch
 # from torch.utils.data import Dataset
 from utils.utils import xyxy2xywh
 
-
+import os
+# os.environ['CUDA_VISIBLE_DEVICES']='4'
 class load_images():  # for inference
     def __init__(self, path, batch_size=1, img_size=416):
         if os.path.isdir(path):
