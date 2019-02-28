@@ -45,8 +45,8 @@ def train(
         torch.backends.cudnn.benchmark = True
 
     os.makedirs(weights_path, exist_ok=True)
-    latest_weights_file = os.path.join(weights_path, 'latest.pt')
-    best_weights_file = os.path.join(weights_path, 'best.pt')
+    latest_weights_file = os.path.join(weights_path, 'NoSparsity_latest.pt')
+    best_weights_file = os.path.join(weights_path, 'NoSparsity_best.pt')
 
     # Configure run
     data_config = parse_config.parse_data_config(data_config_path)
@@ -153,8 +153,8 @@ def train(
             loss = model(imgs.to(device), targets, batch_report=report, var=var)
             loss.backward()
 
-            # Sparsity L1 loss
-            updateBN(model, 0.0001)
+            # # Sparsity L1 loss
+            # updateBN(model, 0.0001)
 
             # 累积批次
             accumulated_batches = 4  # accumulate gradient for 4 batches before optimizing
@@ -204,8 +204,8 @@ def train(
                       'model': model.state_dict(),
                       'optimizer': optimizer.state_dict()}
         torch.save(checkpoint, latest_weights_file)
-        model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights', epoch))
-        print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights', epoch))
+        model.save_weights("%s/yolov3_Nosparsity_%d.weights" % ('Nosparsity_weights', epoch))
+        print("save weights in %s/yolov3_Nosparsity_%d.weights" % ('Nosparsity_weights', epoch))
         # Save best checkpoint
 
         # Save best checkpoint

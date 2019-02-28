@@ -30,7 +30,7 @@ def parse_data_config(path):
     """Parses the data configuration file"""
     options = dict()
     options['gpus'] = '0,1,2,3,4,5,6,7,8,9'
-    options['num_workers'] = '20'
+    options['num_workers'] = '6'
     with open(path, 'r') as fp:
         lines = fp.readlines()
     for line in lines:

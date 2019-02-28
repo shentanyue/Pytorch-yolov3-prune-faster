@@ -17,5 +17,5 @@ def select_device(force_cpu=False):
     if force_cpu:
         device = torch.device('cpu')
     else:
-        device = torch.device('cuda:8' if CUDA_AVAILABLE else 'cpu')
+        device = torch.device('cuda:7' if CUDA_AVAILABLE else 'cpu')
     return device
