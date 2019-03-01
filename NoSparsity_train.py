@@ -65,7 +65,7 @@ def train(
 
     lr0 = 0.001
     if resume:
-        checkpoint = torch.load(latest_weights_file, map_location='cpu')
+        checkpoint = torch.load(best_weights_file, map_location='cpu')
 
         model.load_state_dict(checkpoint['model'])
             # print('Using ', torch.cuda.device_count(), ' GPUs')

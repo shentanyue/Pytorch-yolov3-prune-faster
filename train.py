@@ -65,7 +65,7 @@ def train(
 
     lr0 = 0.001
     if resume:
-        checkpoint = torch.load(latest_weights_file, map_location='cpu')
+        checkpoint = torch.load(best_weights_file, map_location='cpu')
 
         model.load_state_dict(checkpoint['model'])
             # print('Using ', torch.cuda.device_count(), ' GPUs')
@@ -223,7 +223,7 @@ def train(
         #         latest_weights_file,
         #         backup_file_path,
         #     ))
-            # model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch))
+            # model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch)) ]
             # print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch))
         # Calculate mAP
         mAP, R, P = test.test(
