@@ -132,9 +132,9 @@ def test(
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='test.py')
     parser.add_argument('--batch-size', type=int, default=8, help='size of each image batch')
-    parser.add_argument('--cfg', type=str, default='./cfg/yolov3.cfg', help='path to model config file')
+    parser.add_argument('--cfg', type=str, default='./prune_cfg/prune_0.2_yolov3.cfg', help='path to model config file')
     parser.add_argument('--data-config', type=str, default='cfg/coco.data', help='path to data config file')
-    parser.add_argument('--weights', type=str, default='./sparsity_weights_new/yolov3_sparsity_14.weights', help='path to weights file')
+    parser.add_argument('--weights', type=str, default='./prune_weights/prune_0.2_yolov3_sparsity_95.weights', help='path to weights file')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='iou threshold required to qualify as detected')
     parser.add_argument('--conf-thres', type=float, default=0.3, help='object confidence threshold')
     parser.add_argument('--nms-thres', type=float, default=0.45, help='iou threshold for non-maximum suppression')

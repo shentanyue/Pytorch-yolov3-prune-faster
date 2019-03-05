@@ -412,7 +412,7 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
     return output
 
 
-def write_cfg(cfgfile, cfg):
+def write_cfg(cfgfile, cfg, precent):
     with open(cfgfile, 'r') as f:
         lines = f.read().split('\n')  # store the lines in a list
         lines = [x for x in lines if len(x) > 0]  # get read of the empty lines
@@ -423,7 +423,9 @@ def write_cfg(cfgfile, cfg):
     blocks = []
     # D:/yolotest/cfg/yolov3.cfg
     # prunedcfg = os.path.join('./'.join(cfgfile.split("/")[0:-1]), "prune_" + cfgfile.split("/")[-1])
-    prunedcfg = os.path.join("prune_" + cfgfile.split("/")[-1])
+    if not os.path.exists('prune_cfg'):
+        os.mkdir('prune_cfg')
+    prunedcfg = os.path.join("prune_cfg/prune_{}_".format(precent) + cfgfile.split("/")[-1])
     for line in lines:
         if line[0] == "[":  # This marks the start of a new block
             if len(block) != 0:  # If block is not empty, implies it is storing values of previous block.

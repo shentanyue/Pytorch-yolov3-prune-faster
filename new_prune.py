@@ -3,14 +3,14 @@ import argparse
 from model import *
 import torch.nn.functional as F
 import os
-os.environ['CUDA_VISIBLE_DEVICES']='1'
+
 
 def arg_parse():
     parser = argparse.ArgumentParser(description="YOLO v3 Prune")
     parser.add_argument("--cfg", dest="cfgfile", help="网络模型",
                         default='./cfg/yolov3.cfg', type=str)
     parser.add_argument("--weights", dest="weightsfile", help="权重文件",
-                        default='./sparsity_weights_new/yolov3_sparsity_14.weights', type=str)
+                        default='./sparsity_weights/yolov3_sparsity_95.weights', type=str)
     parser.add_argument('--percent', type=float, default=0.5, help='剪枝的比例')
     return parser.parse_args()
 
@@ -84,23 +84,23 @@ for i in range(len(nnlist)):
                         bias = next_name[1].bias.data + activations
                         bias = bias.view(-1)
                         next_name[1].bias.data = bias
-                    elif next_name[0].split("_")[0] == 'maxpool':
-                        activations = torch.mm(F.relu(remain_bias).view(1, -1),
-                                               nnlist[i + 2][0].weight.sum(dim=[2, 3]).transpose(1, 0).contiguous())
-                        mean = nnlist[i + 2][1].running_mean - activations
-                        mean = mean.view(-1)
-                        nnlist[i + 2][1].running_mean = mean
-                    elif next_name[0].split("_")[0] == 'reorg':
-                        stride = next_name[1].stride
-                        remain_bias_list[i + 1] = torch.squeeze(
-                            remain_bias.expand(int(stride * stride), int(remain_bias.size(0))).transpose(1,
-                                                                                                         0).contiguous().view(
-                                1, -1))
+                    # elif next_name[0].split("_")[0] == 'maxpool':
+                    #     activations = torch.mm(F.relu(remain_bias).view(1, -1),
+                    #                            nnlist[i + 2][0].weight.sum(dim=[2, 3]).transpose(1, 0).contiguous())
+                    #     mean = nnlist[i + 2][1].running_mean - activations
+                    #     mean = mean.view(-1)
+                    #     nnlist[i + 2][1].running_mean = mean
+                    # elif next_name[0].split("_")[0] == 'reorg':
+                    #     stride = next_name[1].stride
+                    #     remain_bias_list[i + 1] = torch.squeeze(
+                    #         remain_bias.expand(int(stride * stride), int(remain_bias.size(0))).transpose(1,
+                    #                                                                                      0).contiguous().view(
+                    #             1, -1))
             elif name[0].split("_")[0] == 'route':
                 try:
-                    end=name[1].layer[1]
+                    end = name[1].layer[1]
                 except:
-                    end=0
+                    end = 0
                 prev_1 = name[1].layers[0] + i
                 have_prev_2 = False
                 # print(name[1])
@@ -124,7 +124,7 @@ for i in range(len(nnlist)):
                 dontp = name[1].weight.data.numel()
                 mask = torch.ones(name[1].weight.data.shape)
                 print('layer index: {:d} \t total channel: {:d} \t remaining channel: {:d}'.
-                            format(i, dontp, int(dontp)))
+                      format(i, dontp, int(dontp)))
                 cfg.append(int(dontp))
                 cfg_mask.append(mask.clone())
 
@@ -134,7 +134,7 @@ print('Pre-processing Successful!')
 print('--' * 30)
 # print(cfg)
 # 写出被减枝的cfg文件
-prunecfg = utils.write_cfg(args.cfgfile, cfg)
+prunecfg = utils.write_cfg(args.cfgfile, cfg, args.percent)
 newmodel = Darknet(prunecfg)
 newmodel.header_info = model.header_info
 if CUDA:
@@ -168,9 +168,9 @@ for layer_id in range(len(old_modules)):
                 # print('ind:',ind)
                 cfg_mask1 = cfg_mask[utils.route_problem(model, ind)]
                 try:
-                    end=old_modules[layer_id + 1].layers[1]
+                    end = old_modules[layer_id + 1].layers[1]
                 except:
-                    end=0
+                    end = 0
                 if end != 0:
                     ind = old_modules[layer_id + 1].layers[1]
                     # print('ind2:',ind)
@@ -209,7 +209,9 @@ for layer_id in range(len(old_modules)):
 print('--' * 30)
 print('prune done!')
 print('pruned ratio %.3f' % pruned_ratio)
-prunedweights = os.path.join("prune_" + args.weightsfile.split("/")[-1])
+prunedweights = os.path.join("prune_{}_".format(args.percent) + args.weightsfile.split("/")[-1])
 print('save weights file in %s' % prunedweights)
-newmodel.save_weights(prunedweights)
+if not os.path.exists('prune_weights'):
+    os.mkdir('prune_weights')
+newmodel.save_weights('prune_weights/'+prunedweights)
 print('done!')
