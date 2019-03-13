@@ -1,4 +1,4 @@
-#coding=utf-8
+# coding=utf-8
 import argparse
 import sys
 import time
@@ -13,6 +13,7 @@ import os
 # Import test.py to get mAP after each epoch
 import test
 
+os.environ['OMP_NUM_THREADS'] = '6'
 DARKNET_WEIGHTS_FILENAME = 'darknet53.conv.74'
 DARKNET_WEIGHTS_URL = 'https://pjreddie.com/media/files/{}'.format(DARKNET_WEIGHTS_FILENAME)
 
@@ -22,6 +23,25 @@ def updateBN(model, s):
         if isinstance(m, nn.BatchNorm2d):
             # print(1)
             m.weight.grad.data.add_(s * torch.sign(m.weight.data))  # L1 Sparsity
+
+###
+    ###################################################################
+###
+def check_cuda():
+    return torch.cuda.is_available()
+
+CUDA_AVAILABLE = check_cuda()
+
+def select_device(cuda_num,force_cpu=False):
+    if force_cpu:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda:{}'.format(cuda_num) if CUDA_AVAILABLE else 'cpu')
+    return device
+
+###
+    ###################################################################
+###
 
 
 def train(
@@ -38,13 +58,13 @@ def train(
         var=0,
         s=0.0001,
 ):
-    device = torch_utils.select_device()
+    device = select_device()
     print("Using device: \"{}\"".format(device))
 
     if not multi_scale:
         torch.backends.cudnn.benchmark = True
 
-    os.makedirs(weights_path, exist_ok=True)
+    # os.makedirs(weights_path, exist_ok=True)
     latest_weights_file = os.path.join(weights_path, 'latest.pt')
     best_weights_file = os.path.join(weights_path, 'best.pt')
 
@@ -63,13 +83,13 @@ def train(
     dataloader = load_images_and_labels(train_path, batch_size=batch_size, img_size=img_size,
                                         multi_scale=multi_scale, augment=True)
 
-    lr0 = 0.0001
+    lr0 = 0.001
     if resume:
         checkpoint = torch.load(best_weights_file, map_location='cpu')
 
         model.load_state_dict(checkpoint['model'])
-            # print('Using ', torch.cuda.device_count(), ' GPUs')
-            # model = nn.DataParallel(model)
+        # print('Using ', torch.cuda.device_count(), ' GPUs')
+        # model = nn.DataParallel(model)
         model.to(device).train()
 
         # # Transfer learning (train only YOLO layers)
@@ -92,15 +112,14 @@ def train(
         best_loss = float('inf')
 
         # Initialize model with darknet53 weights(optional)
-        def_weight_file = os.path.join(weights_path, DARKNET_WEIGHTS_FILENAME)
-        if not os.path.isfile(def_weight_file):
-            os.system('wget {} -P {}'.format(
-                DARKNET_WEIGHTS_URL,
-                weights_path))
-        assert os.path.isfile(def_weight_file)
+        # def_weight_file = os.path.join(weights_path, DARKNET_WEIGHTS_FILENAME)
+        # if not os.path.isfile(def_weight_file):
+        #     os.system('wget {} -P {}'.format(
+        #         DARKNET_WEIGHTS_URL,
+        #         weights_path))
+        # assert os.path.isfile(def_weight_file)
 
-
-        # def_weight_file='prune_yolov3_sparsity_14.weights'
+        def_weight_file = weights_path
 
         model.load_weights(def_weight_file)
 
@@ -117,10 +136,16 @@ def train(
         print(('%8s%12s' + '%10s' * 14) % ('Epoch', 'Batch', 'x', 'y', 'w', 'h', 'conf', 'cls', 'total', 'P', 'R',
                                            'nTargets', 'TP', 'FP', 'FN', 'time'))
 
-        if epoch > 30:
+        if epoch > 50:
             lr = lr0 / 10
         else:
             lr = lr0
+
+        if epoch > 80:
+            lr = lr / 2
+        else:
+            lr = lr
+
         for g in optimizer.param_groups:
             g['lr'] = lr
 
@@ -223,8 +248,8 @@ def train(
         #         latest_weights_file,
         #         backup_file_path,
         #     ))
-            # model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch)) ]
-            # print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch))
+        # model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch)) ]
+        # print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch))
         # Calculate mAP
         mAP, R, P = test.test(
             net_config_path,
@@ -232,6 +257,7 @@ def train(
             latest_weights_file,
             batch_size=batch_size,
             img_size=img_size,
+            device=device
         )
 
         # Write epoch results
@@ -245,18 +271,20 @@ def train(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=10, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=20, help='number of epochs')
     parser.add_argument('--batch-size', type=int, default=16, help='size of each image batch')
     parser.add_argument('--data-config', type=str, default='cfg/coco.data', help='path to data config file')
-    parser.add_argument('--cfg', type=str, default='cfg/yolov3.cfg', help='cfg file path')
     parser.add_argument('--multi-scale', action='store_true', help='random image sizes per batch 320 - 608')
     parser.add_argument('--img-size', type=int, default=32 * 13, help='pixels')
-    parser.add_argument('--weights-path', type=str, default='weights', help='path to store weights')
     parser.add_argument('--resume', action='store_true', help='resume training flag')
     parser.add_argument('--report', action='store_true', help='report TP, FP, FN, P and R per batch (slower)')
     parser.add_argument('--freeze', action='store_true', help='freeze darknet53.conv.74 layers for first epoche')
     parser.add_argument('--var', type=float, default=0, help='optional test variable')
     parser.add_argument('--s', type=float, default=0.0001, help='sparity')
+
+    parser.add_argument('--cfg', type=str, default='cfg/yolov3.cfg', help='cfg file path')
+    parser.add_argument('--weights-path', type=str, default='weights/datknet53.conv.74',
+                        help='path to store weights')
     opt = parser.parse_args()
     print(opt, end='\n\n')
 

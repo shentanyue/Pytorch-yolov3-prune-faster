@@ -19,8 +19,9 @@ def test(
         conf_thres=0.3,
         nms_thres=0.45,
         n_cpus=0,
+        device=0
 ):
-    device = torch_utils.select_device()
+    # device = torch_utils.select_device()
     # CUDA_AVAILABLE = torch_utils.check_cuda()
     # device = torch.device('cuda:0' if CUDA_AVAILABLE else 'cpu')
     print("Using device: \"{}\"".format(device))
@@ -140,6 +141,7 @@ if __name__ == '__main__':
     parser.add_argument('--nms-thres', type=float, default=0.45, help='iou threshold for non-maximum suppression')
     parser.add_argument('--n-cpus', type=int, default=4, help='number of cpu threads to use during batch generation')
     parser.add_argument('--img-size', type=int, default=416, help='size of each image dimension')
+    parser.add_argument('--device', type=int, default=0, help='cuda device')
     opt = parser.parse_args()
     print(opt, end='\n\n')
 
@@ -161,6 +163,7 @@ if __name__ == '__main__':
         conf_thres=opt.conf_thres,
         nms_thres=opt.nms_thres,
         n_cpus=opt.n_cpus,
+        devece=opt.device
     )
     print(mAP)
     print(R)
