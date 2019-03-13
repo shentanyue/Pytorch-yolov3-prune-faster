@@ -13,9 +13,9 @@ def init_seeds(seed=0):
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-def select_device(force_cpu=False):
+def select_device(cuda_num,force_cpu=False):
     if force_cpu:
         device = torch.device('cpu')
     else:
-        device = torch.device('cuda:8' if CUDA_AVAILABLE else 'cpu')
+        device = torch.device('cuda:{}'.format(cuda_num) if CUDA_AVAILABLE else 'cpu')
     return device
