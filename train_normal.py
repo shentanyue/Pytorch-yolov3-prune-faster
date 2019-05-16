@@ -58,15 +58,15 @@ def train(
         var=0,
         s=0.0001,
 ):
-    device = select_device(cuda_num=9)
+    device = select_device(cuda_num=8)
     print("Using device: \"{}\"".format(device))
 
     if not multi_scale:
         torch.backends.cudnn.benchmark = True
 
     # os.makedirs(weights_path, exist_ok=True)
-    latest_weights_file = os.path.join(weights_path, 'latest.pt')
-    best_weights_file = os.path.join(weights_path, 'best.pt')
+    latest_weights_file = os.path.join(weights_path, 'NOsparsity_latest.pt')
+    best_weights_file = os.path.join(weights_path, 'NOsparsity_best.pt')
 
     # Configure run
     data_config = parse_config.parse_data_config(data_config_path)
@@ -179,7 +179,7 @@ def train(
             loss.backward()
 
             # Sparsity L1 loss
-            updateBN(model, 0.0001)
+            # updateBN(model, 0.0001)
 
             # 累积批次
             accumulated_batches = 4  # accumulate gradient for 4 batches before optimizing
@@ -229,8 +229,8 @@ def train(
                       'model': model.state_dict(),
                       'optimizer': optimizer.state_dict()}
         torch.save(checkpoint, latest_weights_file)
-        model.save_weights("/data/shenty/model/%s/yolov3_sparsity_%d.weights" % ('sparsity_weights', epoch))
-        print("save weights in /data/shenty/model/%s/yolov3_sparsity_%d.weights" % ('sparsity_weights', epoch))
+        model.save_weights("/data/shenty/model/%s/yolov3_sparsity_%d.weights" % ('NOsparsity_weights', epoch))
+        print("save weights in /data/shenty/model/%s/yolov3_sparsity_%d.weights" % ('NOsparsity_weights', epoch))
         # Save best checkpoint
 
         # Save best checkpoint
