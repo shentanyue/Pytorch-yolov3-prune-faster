@@ -3,16 +3,18 @@ import argparse
 from model import *
 import torch.nn.functional as F
 import os
-
-
+import test
+import detect
 def arg_parse():
     parser = argparse.ArgumentParser(description="YOLO v3 Prune")
     parser.add_argument("--cfg", dest="cfgfile", help="网络模型",
                         default='./cfg/yolov3.cfg', type=str)
     parser.add_argument("--weights", dest="weightsfile", help="权重文件",
-                        default='./sparsity_weights/yolov3_sparsity_95.weights', type=str)
-    parser.add_argument('--percent', type=float, default=0.5, help='剪枝的比例')
+                        default='/data_1/shenty/model/normal.weights', type=str)
+    parser.add_argument('--percent', type=float, default=0.3, help='剪枝的比例')
     return parser.parse_args()
+
+
 
 
 # alpha = 0.1
@@ -23,7 +25,13 @@ print("load network")
 model = Darknet(args.cfgfile)
 print("done!")
 print("load weightsfile")
+
+# best_weights_file = './weights/latest.weights'
+# checkpoint = torch.load(best_weights_file, map_location='cpu')
+# model.load_state_dict(checkpoint['model'])
+
 model.load_weights(args.weightsfile)
+
 if CUDA:
     model.cuda()
 
@@ -211,7 +219,33 @@ print('prune done!')
 print('pruned ratio %.3f' % pruned_ratio)
 prunedweights = os.path.join("prune_{}_".format(args.percent) + args.weightsfile.split("/")[-1])
 print('save weights file in %s' % prunedweights)
-if not os.path.exists('prune_weights'):
-    os.mkdir('prune_weights')
-newmodel.save_weights('prune_weights/'+prunedweights)
+if not os.path.exists('normal_prune_weights'):
+    os.mkdir('normal_prune_weights')
+newmodel.save_weights('normal_prune_weights/'+prunedweights)
+
+net_config_path = './normal_prune_cfg/prune_{}_yolov3.cfg'.format(args.percent)
+data_config_path = 'cfg/coco.data'
+latest_weights_file = 'normal_prune_weights/' + prunedweights
+mAP, R, P = test.test(
+    net_config_path,
+    data_config_path,
+    latest_weights_file,
+    batch_size=16,
+    img_size=416,
+    conf_thres=0.25
+)
+detect.detect(
+    net_config_path,
+    data_config_path,
+    latest_weights_file,
+    images_path='./data/samples',
+    output='output',
+    batch_size=1,
+    img_size=32*13,
+    conf_thres=0.25,
+    nms_thres=0.45,
+    save_txt=False,
+    save_images=False
+)
+
 print('done!')

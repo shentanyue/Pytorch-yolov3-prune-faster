@@ -1,12 +1,13 @@
-#coding=utf-8
+# coding=utf-8
 import argparse
 
 from model import *
 from utils.datasets import *
 from utils.utils import *
-
+from thop import profile
 from utils import torch_utils
 from utils import utils
+
 
 
 def test(
@@ -42,8 +43,10 @@ def test(
     else:  # darknet format
         model.load_weights(weights_file_path)
 
+    flops, params = profile(model, input_size=(1, 3, 416, 416))
+    print(flops,params)
     model.to(device).eval()
-
+    # model_info(model)
     # Get dataloader
     # dataset = load_images_with_labels(test_path)
     # dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=n_cpus)
@@ -133,9 +136,10 @@ def test(
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='test.py')
     parser.add_argument('--batch-size', type=int, default=8, help='size of each image batch')
-    parser.add_argument('--cfg', type=str, default='./prune_cfg/prune_0.2_yolov3.cfg', help='path to model config file')
+    parser.add_argument('--cfg', type=str, default='./cfg/yolov3.cfg', help='path to model config file')
     parser.add_argument('--data-config', type=str, default='cfg/coco.data', help='path to data config file')
-    parser.add_argument('--weights', type=str, default='./prune_weights/prune_0.2_yolov3_sparsity_95.weights', help='path to weights file')
+    parser.add_argument('--weights', type=str, default='./weights/yolov3_sparsity_63.weights',
+                        help='path to weights file')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='iou threshold required to qualify as detected')
     parser.add_argument('--conf-thres', type=float, default=0.3, help='object confidence threshold')
     parser.add_argument('--nms-thres', type=float, default=0.45, help='iou threshold for non-maximum suppression')
@@ -145,7 +149,6 @@ if __name__ == '__main__':
     opt = parser.parse_args()
     print(opt, end='\n\n')
 
-
     # init_seeds()
     '''
     prune_yolov3.cfg
@@ -153,7 +156,7 @@ if __name__ == '__main__':
     ./cfg/yolov3.cfg
     ./sparsity_weights_new/yolov3_sparsity_14.weights
     '''
-    mAP,R,P = test(
+    mAP, R, P = test(
         opt.cfg,
         opt.data_config,
         opt.weights,
@@ -163,8 +166,9 @@ if __name__ == '__main__':
         conf_thres=opt.conf_thres,
         nms_thres=opt.nms_thres,
         n_cpus=opt.n_cpus,
-        devece=opt.device
+        device=opt.device
     )
+    detect
     print(mAP)
     print(R)
     print(P)

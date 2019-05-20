@@ -1,10 +1,12 @@
-#coding=utf-8
+# coding=utf-8
 import numpy as np
 import torch
 import os
 import torch.nn.functional as F
 import cv2
 import random
+
+
 def class_weights():
     """
     COCO train2014每个样本类的频率
@@ -423,9 +425,9 @@ def write_cfg(cfgfile, cfg, precent):
     blocks = []
     # D:/yolotest/cfg/yolov3.cfg
     # prunedcfg = os.path.join('./'.join(cfgfile.split("/")[0:-1]), "prune_" + cfgfile.split("/")[-1])
-    if not os.path.exists('prune_cfg'):
-        os.mkdir('prune_cfg')
-    prunedcfg = os.path.join("prune_cfg/prune_{}_".format(precent) + cfgfile.split("/")[-1])
+    if not os.path.exists('normal_prune_cfg'):
+        os.mkdir('normal_prune_cfg')
+    prunedcfg = os.path.join("normal_prune_cfg/prune_{}_".format(precent) + cfgfile.split("/")[-1])
     for line in lines:
         if line[0] == "[":  # This marks the start of a new block
             if len(block) != 0:  # If block is not empty, implies it is storing values of previous block.
@@ -455,36 +457,37 @@ def write_cfg(cfgfile, cfg, precent):
     print('save pruned cfg file in %s' % prunedcfg)
     return prunedcfg
 
-def route_problem(model,ind):
+
+def route_problem(model, ind):
     ds = list(model.children())
     dsas = list(ds[0].children())
 
     # print('-----------',dsas[90])
     sum1 = 0
     # print(dsas[90].named_children())
-    for k in range(ind+1):
+    for k in range(ind + 1):
         # print('k:',k)
         for i in dsas[k].named_children():
             # print('i:',i)
             if "_".join(i[0].split("_")[0:-1]) == 'conv_with_bn':
                 sum1 = sum1 + 1
-    #print(sum1)
-    return sum1-1
+    # print(sum1)
+    return sum1 - 1
 
 
 def dontprune(model):
-
-    dontprune=[]
+    dontprune = []
     nnlist = model.module_list
     for i in range(len(nnlist)):
         for name in nnlist[i].named_children():
             if name[0].split("_")[0] == 'shortcut':
-                if 'conv' in list(nnlist[name[1].froms+i].named_children())[0][0]:
-                    dontprune.append(name[1].froms+i)
+                if 'conv' in list(nnlist[name[1].froms + i].named_children())[0][0]:
+                    dontprune.append(name[1].froms + i)
                 else:
-                    dontprune.append(name[1].froms + i-1)
-                dontprune.append(i-1)
+                    dontprune.append(name[1].froms + i - 1)
+                dontprune.append(i - 1)
     return dontprune
+
 
 def coco_class_count(path='../coco/labels/train2014/'):
     import glob
@@ -516,6 +519,7 @@ def plot_results():
             if i == 0:
                 plt.legend()
 
+
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):  # Plots one bounding box on image img
     tl = line_thickness or round(0.002 * max(img.shape[0:2])) + 1  # line thickness
     color = color or [random.randint(0, 255) for _ in range(3)]
@@ -527,3 +531,15 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=None):  # Plots 
         c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
         cv2.rectangle(img, c1, c2, color, -1)  # filled
         cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
+
+# def model_info(model, report='full'):
+#     # Plots a line-by-line description of a PyTorch model
+#     n_p = sum(x.numel() for x in model.parameters())  # number parameters
+#     n_g = sum(x.numel() for x in model.parameters() if x.requires_grad)  # number gradients
+#     if report is 'full':
+#         print('%5s %40s %9s %12s %20s %10s %10s' % ('layer', 'name', 'gradient', 'parameters', 'shape', 'mu', 'sigma'))
+#         for i, (name, p) in enumerate(model.named_parameters()):
+#             name = name.replace('module_list.', '')
+#             print('%5g %40s %9s %12g %20s %10.3g %10.3g' %
+#                   (i, name, p.requires_grad, p.numel(), list(p.shape), p.mean(), p.std()))
+#     print('Model Summary: %g layers, %g parameters, %g gradients' % (len(list(model.parameters())), n_p, n_g))

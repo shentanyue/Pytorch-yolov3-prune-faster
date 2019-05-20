@@ -21,9 +21,9 @@ def detect(
         save_txt=False,
         save_images=False,
 ):
-    device = torch_utils.select_device()
-    print("Using device: \"{}\"".format(device))
-
+    # device = torch_utils.select_device()
+    # print("Using device: \"{}\"".format(device))
+    device = torch.device('cuda')
     os.system('rm -rf ' + output)
     os.makedirs(output, exist_ok=True)
 
@@ -60,12 +60,12 @@ def detect(
 
     imgs = []  # Stores image paths
     img_detections = []  # Stores detections for each image index
-    prev_time = time.time()
-    total_time=0
-    for i in range(10):
+
+    total_time = 0
+    for i in range(30):
         for i, (img_paths, img) in enumerate(dataloader):
             print('%g/%g' % (i + 1, len(dataloader)), end=' ')
-
+            prev_time = time.time()
             # Get detections
             with torch.no_grad():
                 pred = model(torch.from_numpy(img).unsqueeze(0).to(device))
@@ -77,11 +77,10 @@ def detect(
                     imgs.extend(img_paths)
 
             print('Batch %d... Done. (%.3fs)' % (i, time.time() - prev_time))
-            total_time =(time.time() - prev_time)+total_time
-            prev_time = time.time()
-    total_time=total_time/140
-    print('total_time:',total_time)
+            total_time = (time.time() - prev_time) + total_time
 
+    total_time = total_time / (30 * 14)
+    print('total_time:', total_time)
 
     # Bounding-box colors
     color_list = [[random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)] for _ in range(len(classes))]
@@ -91,7 +90,7 @@ def detect(
 
     # Iterate through images and save plot of detections
     for img_i, (path, detections) in enumerate(zip(imgs, img_detections)):
-        print("image %g: '%s'" % (img_i, path))
+        # print("image %g: '%s'" % (img_i, path))
 
         if save_images:
             img = cv2.imread(path)
@@ -116,7 +115,7 @@ def detect(
 
             for i in unique_classes:
                 n = (detections[:, -1].cpu() == i).sum()
-                print('%g %ss' % (n, classes[int(i)]))
+                # print('%g %ss' % (n, classes[int(i)]))
 
             for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
                 # Rescale coordinates to original dimensions
@@ -157,7 +156,8 @@ if __name__ == '__main__':
     parser.add_argument('--txt-out', type=bool, default=False)
     parser.add_argument('--cfg', type=str, default='cfg/yolov3.cfg', help='cfg file path')
     parser.add_argument('--data-config', type=str, default='cfg/coco.data', help='path to data config file')
-    parser.add_argument('--weights', type=str, default='sparsity_weights_new/yolov3_sparsity_12.weights', help='path to weights file')
+    parser.add_argument('--weights', type=str, default='sparsity_weights_new/yolov3_sparsity_12.weights',
+                        help='path to weights file')
     parser.add_argument('--conf-thres', type=float, default=0.50, help='object confidence threshold')
     parser.add_argument('--nms-thres', type=float, default=0.45, help='iou threshold for non-maximum suppression')
     parser.add_argument('--batch-size', type=int, default=1, help='size of the batches')

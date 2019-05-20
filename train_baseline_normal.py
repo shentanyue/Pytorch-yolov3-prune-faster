@@ -1,4 +1,4 @@
-#coding=utf-8
+# coding=utf-8
 import argparse
 import sys
 import time
@@ -12,6 +12,8 @@ import os
 # os.environ['CUDA_VISIBLE_DEVICES']='8'
 # Import test.py to get mAP after each epoch
 import test
+
+# os.environ['CUDA_VISIBLE_DEVICES']='7'
 os.environ['OMP_NUM_THREADS'] = '6'
 DARKNET_WEIGHTS_FILENAME = 'darknet53.conv.74'
 DARKNET_WEIGHTS_URL = 'https://pjreddie.com/media/files/{}'.format(DARKNET_WEIGHTS_FILENAME)
@@ -20,8 +22,30 @@ DARKNET_WEIGHTS_URL = 'https://pjreddie.com/media/files/{}'.format(DARKNET_WEIGH
 def updateBN(model, s):
     for m in model.modules():
         if isinstance(m, nn.BatchNorm2d):
-            # print(1)
             m.weight.grad.data.add_(s * torch.sign(m.weight.data))  # L1 Sparsity
+
+
+###
+###################################################################
+###
+def check_cuda():
+    return torch.cuda.is_available()
+
+
+CUDA_AVAILABLE = check_cuda()
+
+
+def select_device(cuda_num, force_cpu=False):
+    if force_cpu:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda')
+    return device
+
+
+###
+###################################################################
+###
 
 
 def train(
@@ -38,15 +62,17 @@ def train(
         var=0,
         s=0.0001,
 ):
-    device = torch_utils.select_device()
+    num = 5
+    device = select_device(cuda_num=7)
     print("Using device: \"{}\"".format(device))
 
     if not multi_scale:
         torch.backends.cudnn.benchmark = True
 
     # os.makedirs(weights_path, exist_ok=True)
-    latest_weights_file = os.path.join(weights_path, 'latest.pt')
-    best_weights_file = os.path.join(weights_path, 'best.pt')
+    new_weights_path = '/data_1/shenty/model/prune_normal/{}'.format(num)
+    latest_weights_file = os.path.join(new_weights_path, 'latest.pt')
+    best_weights_file = os.path.join(new_weights_path, 'best.pt')
 
     # Configure run
     data_config = parse_config.parse_data_config(data_config_path)
@@ -68,8 +94,8 @@ def train(
         checkpoint = torch.load(best_weights_file, map_location='cpu')
 
         model.load_state_dict(checkpoint['model'])
-            # print('Using ', torch.cuda.device_count(), ' GPUs')
-            # model = nn.DataParallel(model)
+        # print('Using ', torch.cuda.device_count(), ' GPUs')
+        # model = nn.DataParallel(model)
         model.to(device).train()
 
         # # Transfer learning (train only YOLO layers)
@@ -99,8 +125,7 @@ def train(
         #         weights_path))
         # assert os.path.isfile(def_weight_file)
 
-
-        def_weight_file=weights_path
+        def_weight_file = weights_path
 
         model.load_weights(def_weight_file)
 
@@ -117,10 +142,16 @@ def train(
         print(('%8s%12s' + '%10s' * 14) % ('Epoch', 'Batch', 'x', 'y', 'w', 'h', 'conf', 'cls', 'total', 'P', 'R',
                                            'nTargets', 'TP', 'FP', 'FN', 'time'))
 
-        if epoch > 10:
+        if epoch > 9:
             lr = lr0 / 10
         else:
             lr = lr0
+
+        if epoch > 18:
+            lr = lr / 5
+        else:
+            lr = lr
+
         for g in optimizer.param_groups:
             g['lr'] = lr
 
@@ -154,7 +185,7 @@ def train(
             loss.backward()
 
             # Sparsity L1 loss
-            updateBN(model, 0.0001)
+            # updateBN(model, 0.0001)
 
             # 累积批次
             accumulated_batches = 4  # accumulate gradient for 4 batches before optimizing
@@ -204,8 +235,8 @@ def train(
                       'model': model.state_dict(),
                       'optimizer': optimizer.state_dict()}
         torch.save(checkpoint, latest_weights_file)
-        model.save_weights("%s/%s/yolov3_sparsity_%d.weights" % ('prune_refine','percent_10',epoch))
-        print("save weights in %s/%s/yolov3_sparsity_%d.weights" % ('prune_refine','percent_10',epoch))
+        model.save_weights("/data_1/shenty/model/%s/%d_yolov3_normal_%d.weights" % ('prune_normal', num, epoch))
+        print("save weights in /data_1/shenty/model/%s/%d_yolov3_normal_%d.weights" % ('prune_normal', num, epoch))
         # Save best checkpoint
 
         # Save best checkpoint
@@ -223,8 +254,8 @@ def train(
         #         latest_weights_file,
         #         backup_file_path,
         #     ))
-            # model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch)) ]
-            # print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch))
+        # model.save_weights("%s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch)) ]
+        # print("save weights in %s/yolov3_sparsity_%d.weights" % ('sparsity_weights_5', epoch))
         # Calculate mAP
         mAP, R, P = test.test(
             net_config_path,
@@ -232,10 +263,11 @@ def train(
             latest_weights_file,
             batch_size=batch_size,
             img_size=img_size,
+            device=device
         )
 
         # Write epoch results
-        with open('results.txt', 'a') as file:
+        with open('results_normal_{}.txt'.format(num), 'a') as file:
             file.write(s + '%11.3g' * 3 % (mAP, P, R) + '\n')
 
     # Save final model
@@ -256,8 +288,8 @@ if __name__ == '__main__':
     parser.add_argument('--var', type=float, default=0, help='optional test variable')
     parser.add_argument('--s', type=float, default=0.0001, help='sparity')
 
-    parser.add_argument('--cfg', type=str, default='prune_cfg/prune_0.2_yolov3.cfg', help='cfg file path')
-    parser.add_argument('--weights-path', type=str, default='prune_weights/prune_0.2_yolov3_sparsity_95.weights',
+    parser.add_argument('--cfg', type=str, default='normal_prune_cfg/prune_0.5_yolov3.cfg', help='cfg file path')
+    parser.add_argument('--weights-path', type=str, default='normal_prune_weights/prune_0.5_normal.weights',
                         help='path to store weights')
     opt = parser.parse_args()
     print(opt, end='\n\n')
