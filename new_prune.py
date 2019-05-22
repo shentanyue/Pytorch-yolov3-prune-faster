@@ -10,7 +10,7 @@ def arg_parse():
     parser.add_argument("--cfg", dest="cfgfile", help="网络模型",
                         default='./cfg/yolov3.cfg', type=str)
     parser.add_argument("--weights", dest="weightsfile", help="权重文件",
-                        default='/data_1/shenty/model/normal.weights', type=str)
+                        default='/data_1/shenty/model/sparsity2.weights', type=str)
     parser.add_argument('--percent', type=float, default=0.3, help='剪枝的比例')
     return parser.parse_args()
 
@@ -31,10 +31,11 @@ print("load weightsfile")
 # model.load_state_dict(checkpoint['model'])
 
 model.load_weights(args.weightsfile)
-
+#
 if CUDA:
     model.cuda()
-
+# device = torch.device('cpu')
+# model.to(device).eval()
 nnlist = model.module_list
 total = 0
 donntprune = utils.dontprune(model)
@@ -219,13 +220,13 @@ print('prune done!')
 print('pruned ratio %.3f' % pruned_ratio)
 prunedweights = os.path.join("prune_{}_".format(args.percent) + args.weightsfile.split("/")[-1])
 print('save weights file in %s' % prunedweights)
-if not os.path.exists('normal_prune_weights'):
-    os.mkdir('normal_prune_weights')
-newmodel.save_weights('normal_prune_weights/'+prunedweights)
+if not os.path.exists('sparsity_2_prune_weights'):
+    os.mkdir('sparsity_2_prune_weights')
+newmodel.save_weights('sparsity_2_prune_weights/'+prunedweights)
 
-net_config_path = './normal_prune_cfg/prune_{}_yolov3.cfg'.format(args.percent)
+net_config_path = './sparsity_2_prune_cfg/prune_{}_yolov3.cfg'.format(args.percent)
 data_config_path = 'cfg/coco.data'
-latest_weights_file = 'normal_prune_weights/' + prunedweights
+latest_weights_file = 'sparsity_2_prune_weights/' + prunedweights
 mAP, R, P = test.test(
     net_config_path,
     data_config_path,

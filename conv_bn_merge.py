@@ -1,15 +1,18 @@
-# coding=utf-8
+import torch
+import cv2
+import numpy as np
+import torchvision.transforms as transforms
+from model import *
+from utils.datasets import *
+from utils.utils import *
+from utils import torch_utils
+import torch
+import os
+from collections import OrderedDict
 from utils import parse_config
 import torch.nn as nn
 import torch
 from utils import utils
-from collections import defaultdict
-import numpy as np
-from utils import torch_utils
-import os
-
-
-# os.environ['CUDA_VISIBLE_DEVICES']='1'
 
 
 def create_modules(module_blocks):
@@ -47,10 +50,10 @@ def create_modules(module_blocks):
                                  kernel_size=kernel_size,
                                  stride=stride,
                                  padding=pad,
-                                 bias=bias)
+                                 bias=True)
                 modules.add_module('conv_with_bn_%d' % index, conv)
-                bn = nn.BatchNorm2d(filters)
-                modules.add_module('batch_norm_%d' % index, bn)
+                # bn = nn.BatchNorm2d(filters)
+                # modules.add_module('batch_norm_%d' % index, bn)
             else:
                 # 增加卷积层
                 conv = nn.Conv2d(in_channels=output_filters[-1],
@@ -83,25 +86,6 @@ def create_modules(module_blocks):
             layers = [int(x) for x in module_block['layers'].split(',')]
             filters = sum([output_filters[layers_i] for layers_i in layers])
             modules.add_module('route_%d' % index, Route(layers))
-            # module_block["layers"] = module_block["layers"].split(',')
-            # # Start of a route
-            # start = int(module_block["layers"][0])
-            # # end, if there exists one.
-            # try:
-            #     end = int(module_block["layers"][1])
-            # except:
-            #     end = 0
-            # # Positive anotation
-            # if start > 0:
-            #     start = start - index
-            # if end > 0:
-            #     end = end - index
-            # route = Route([start, end])
-            # modules.add_module("route_{0}".format(index), route)
-            # if end < 0:
-            #     filters = output_filters[index + start] + output_filters[index + end]
-            # else:
-            #     filters = output_filters[index + start]
 
         # Shortcut层
         #   [shortcut]
@@ -318,11 +302,47 @@ class YOLOLayer(nn.Module):
             return output.data
 
 
-class Darknet(nn.Module):
+"""  Functions  """
+
+
+def merge(params, name, layer):
+    # global variables
+    global weights, bias
+    global bn_param
+
+    if layer == 'Convolution':
+        # save weights and bias when meet conv layer
+        print(1)
+        if 'weight' in name:
+            weights = params.data
+            bias = torch.zeros(weights.size()[0])
+        elif 'bias' in name:
+            bias = params.data
+        bn_param = {}
+
+
+    elif layer == 'BatchNorm':
+        # save bn params
+        bn_param[name.split('.')[-1]] = params.data
+        # print(bn_param)
+        # running_var is the last bn param in pytorch
+        if 'running_var' in name:
+            # let us merge bn ~
+            print(2)
+            tmp = bn_param['weight'] / torch.sqrt(bn_param['running_var'] + 1e-5)
+            weights = tmp.view(tmp.size()[0], 1, 1, 1) * weights
+            bias = tmp * (bias - bn_param['running_mean']) + bn_param['bias']
+
+            return weights, bias
+
+    return None, None
+
+
+class Darknet_new(nn.Module):
     '''Yolov3 object detection model'''
 
     def __init__(self, cfgfile_path, img_size=416):
-        super(Darknet, self).__init__()
+        super(Darknet_new, self).__init__()
         self.module_blocks = parse_config.parse_model_config(cfgfile_path)
         self.module_blocks[0]['height'] = img_size
         self.net_hyperparams, self.module_list = create_modules(self.module_blocks)
@@ -387,8 +407,6 @@ class Darknet(nn.Module):
     def load_weights(self, weights_path, cutoff=-1):
         # Parses and loads the weights stored in 'weights_path'
         # @:param cutoff  - save layers between 0 and cutoff (cutoff = -1 -> all are saved)
-        if weights_path.endswith('darknet53.conv.74'):
-            cutoff = 75
 
         # Open the weights file
         fp = open(weights_path, 'rb')
@@ -404,50 +422,43 @@ class Darknet(nn.Module):
         self.seen = header[3]
         weights = np.fromfile(fp, dtype=np.float32)  # The rest are weights
         fp.close()
-        plot_list = []
+
         ptr = 0
         for i, (module_block, module) in enumerate(zip(self.module_blocks[:cutoff], self.module_list[:cutoff])):
             if module_block['type'] == 'convolutional':
                 conv_layer = module[0]
-                try:
-                    batch_normalize = int(self.module_blocks[i]["batch_normalize"])
-                except:
-                    batch_normalize = 0
-                if batch_normalize:
-                    # Load BN bias,weights,running mean and running variance
-                    bn_layer = module[1]
-                    num_b = bn_layer.bias.numel()  # Number of biases
-                    # Bias
-                    bn_b = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.bias)
-                    bn_layer.bias.data.copy_(bn_b)
-                    ptr += num_b
-                    # Weight
-                    bn_w = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.weight)
-                    plot_list.extend(weights[ptr:ptr + num_b])
-                    # print(len(weights[ptr:ptr + num_b]))
-                    print(len(plot_list))
-                    bn_layer.weight.data.copy_(bn_w)
-                    ptr += num_b
-                    # Running Mean
-                    bn_rm = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.running_mean)
-                    bn_layer.running_mean.data.copy_(bn_rm)
-                    ptr += num_b
-                    # Running Var
-                    bn_rv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.running_var)
-                    bn_layer.running_var.data.copy_(bn_rv)
-                    ptr += num_b
-                else:
-                    # Load conv. bias
-                    num_b = conv_layer.bias.numel()  # torch.numel() 返回一个tensor变量内所有元素个数，可以理解为矩阵内元素的个数
-                    conv_b = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(conv_layer.bias)
-                    conv_layer.bias.data.copy_(conv_b)
-                    ptr += num_b
+                batch_normalize = 0
+                # if batch_normalize:
+                #     # Load BN bias,weights,running mean and running variance
+                #     bn_layer = module[1]
+                #     num_b = bn_layer.bias.numel()  # Number of biases
+                #     # Bias
+                #     bn_b = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.bias)
+                #     bn_layer.bias.data.copy_(bn_b)
+                #     ptr += num_b
+                #     # Weight
+                #     bn_w = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.weight)
+                #     bn_layer.weight.data.copy_(bn_w)
+                #     ptr += num_b
+                #     # Running Mean
+                #     bn_rm = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.running_mean)
+                #     bn_layer.running_mean.data.copy_(bn_rm)
+                #     ptr += num_b
+                #     # Running Var
+                #     bn_rv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.running_var)
+                #     bn_layer.running_var.data.copy_(bn_rv)
+                #     ptr += num_b
+                # else:
+                #     # Load conv. bias
+                #     num_b = conv_layer.bias.numel()  # torch.numel() 返回一个tensor变量内所有元素个数，可以理解为矩阵内元素的个数
+                #     conv_b = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(conv_layer.bias)
+                #     conv_layer.bias.data.copy_(conv_b)
+                #     ptr += num_b
                 # Load conv. weight
                 num_w = conv_layer.weight.numel()
                 conv_w = torch.from_numpy(weights[ptr:ptr + num_w]).view_as(conv_layer.weight)
                 conv_layer.weight.data.copy_(conv_w)
                 ptr += num_w
-        return plot_list
         print("done!")
 
     def save_weights(self, path, cutoff=-1):
@@ -481,37 +492,125 @@ class Darknet(nn.Module):
         fp.close()
 
 
-def plot_L1_sparsity_scale(plot_list):
-    import matplotlib.pyplot as plt
-    import numpy as np
-    group = plot_list
-    arr = []
-    for num in plot_list:
-        if num > (-0.1) and num < 1:
-            arr.append(num)
+"""  Main functions  """
+# import pytorch model
 
-    # for index, num in enumerate(arr):
-    #     arr[index] = arr[index]*0.01
-    #     if index>5000:
-    #         break
+SAVE = True
+device = torch.device('cuda')
+net_config_path = 'sparsity_prune_cfg/prune_0.4_yolov3.cfg'
+img_size = 416
+# new_weights_path = '/data_1/shenty/yolo_model/sparsity_weights/'
+# best_weights_file = os.path.join(new_weights_path, 'yolov3_sparsity_20.weights')
+new_weights_path = '/data_1/shenty/model/prune_sparsity/4'
+best_weights_file = os.path.join(new_weights_path, 'best.pt')
 
-    n, bins, patches = plt.hist(arr, bins=100, normed=0, facecolor='red', alpha=0.5)
-    # plt.xlabel('Value')
-    # plt.ylabel('Count')
-    plt.title('λ=10e-5')
-    print(bins)
-    print(patches)
-    plt.show()
+# Initialize model
+pytorch_net = Darknet(net_config_path, img_size)
 
+# load weights
+print('Finding trained model weights...')
+checkpoint = torch.load(best_weights_file, map_location='cpu')
+# pytorch_net.load_state_dict(checkpoint['model'])
+# pytorch_net.to(device).train()
+pytorch_net.load_weights(best_weights_file)
 
-if __name__ == '__main__':
-    cfgfile = "cfg/yolov3.cfg"
-    # blocks = parse_config.parse_model_config(cfgfile)
-    # a = create_modules(blocks)
-    # print(a)
-    # cfgfile = 'normal_prune_cfg/prune_0.0_yolov3.cfg'
-    # weightsfile = '/data_1/shenty/model/sparsity.weights'
-    weightsfile = '/data_1/shenty/yolo_model/sparsity_weights/yolov3_sparsity_56.weights'
-    model = Darknet(cfgfile)
-    plot_list = model.load_weights(weightsfile)
-    plot_L1_sparsity_scale(plot_list)
+# go through pytorch net
+print('Going through pytorch net weights...')
+new_weights = OrderedDict()
+inner_product_flag = False
+for name, params in checkpoint['model'].items():
+    print(name, len(params.size()))
+    if 'conv_without_bn' in name:
+        new_weights[name] = params
+        continue
+    elif len(params.size()) == 4:
+        _, _ = merge(params, name, 'Convolution')
+        prev_layer = name
+    elif len(params.size()) == 1:
+        w, b = merge(params, name, 'BatchNorm')
+        if w is not None:
+            new_weights[prev_layer] = w
+            new_weights[prev_layer.replace('weight', 'bias')] = b
+    else:
+        print('None')
+    #     # inner product layer
+    #     # if meet inner product layer,
+    #     # the next bias weight can be misclassified as 'BatchNorm' layer as len(params.size()) == 1
+    #     new_weights[name] = params
+    # inner_product_flag = True
+
+# align names in new_weights with pytorch model
+# after move BatchNorm layer in pytorch model,
+# the layer names between old model and new model will mis-align
+pytorch_net_key_list = list(pytorch_net.state_dict().keys())
+new_weights_key_list = list(new_weights.keys())
+print(len(pytorch_net_key_list))
+print(len(new_weights_key_list))
+print('Aligning weight names...')
+module_blocks = parse_config.parse_model_config(net_config_path)
+module_blocks[0]['height'] = img_size
+net_hyperparams, module_list = create_modules(module_blocks)
+
+pytorch_net_key_list = list(module_list.state_dict().keys())
+new_weights_key_list = list(new_weights.keys())
+print(len(pytorch_net_key_list))
+print(len(new_weights_key_list))
+# print(new_weights_key_list)
+
+# assert len(pytorch_net_key_list) == len(new_weights_key_list)
+for index in range(len(pytorch_net_key_list)):
+    print(pytorch_net_key_list[index])
+    # print(new_weights_key_list[index])
+    new_weights[pytorch_net_key_list[index]] = new_weights.pop(new_weights_key_list[index])
+    # print(new_weights)
+
+# save new weights
+weighs_file = './4_sparsity_merged.weights'
+if SAVE:
+    torch.save(new_weights, weighs_file)
+
+import argparse
+import time
+
+from model import *
+from utils.datasets import *
+from utils.utils import *
+
+data_config_path = 'cfg/coco.data'
+data_config = parse_config.parse_data_config(data_config_path)
+images_path = './data/samples'
+batch_size = 1
+conf_thres = 0.25
+nms_thres = 0.45
+
+new_model = Darknet_new(net_config_path, img_size)
+new_model.load_weights(weighs_file)
+new_model.to(device).eval()
+
+# Set Dataloader
+classes = load_classes(data_config['names'])  # Extracts class labels from file
+dataloader = load_images(images_path, batch_size=batch_size, img_size=img_size)
+
+imgs = []  # Stores image paths
+img_detections = []  # Stores detections for each image index
+
+total_time = 0
+for i in range(3):
+    for i, (img_paths, img) in enumerate(dataloader):
+        print('%g/%g' % (i + 1, len(dataloader)), end=' ')
+        prev_time = time.time()
+        # Get detections
+        with torch.no_grad():
+            pred = new_model(torch.from_numpy(img).unsqueeze(0).to(device))
+            pred = pred[pred[:, :, 4] > conf_thres]
+
+            if len(pred) > 0:
+                detections = non_max_suppression(pred.unsqueeze(0), conf_thres, nms_thres)
+                img_detections.extend(detections)
+                imgs.extend(img_paths)
+
+        print('Batch %d... Done. (%.3fs)' % (i, time.time() - prev_time))
+        total_time = (time.time() - prev_time) + total_time
+
+total_time = total_time / (3 * 14)
+print('total_time:', total_time)

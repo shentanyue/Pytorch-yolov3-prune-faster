@@ -425,9 +425,9 @@ def write_cfg(cfgfile, cfg, precent):
     blocks = []
     # D:/yolotest/cfg/yolov3.cfg
     # prunedcfg = os.path.join('./'.join(cfgfile.split("/")[0:-1]), "prune_" + cfgfile.split("/")[-1])
-    if not os.path.exists('normal_prune_cfg'):
-        os.mkdir('normal_prune_cfg')
-    prunedcfg = os.path.join("normal_prune_cfg/prune_{}_".format(precent) + cfgfile.split("/")[-1])
+    if not os.path.exists('sparsity_2_prune_cfg'):
+        os.mkdir('sparsity_2_prune_cfg')
+    prunedcfg = os.path.join("sparsity_2_prune_cfg/prune_{}_".format(precent) + cfgfile.split("/")[-1])
     for line in lines:
         if line[0] == "[":  # This marks the start of a new block
             if len(block) != 0:  # If block is not empty, implies it is storing values of previous block.
