@@ -9,4 +9,4 @@ use for prunning on the yolov3
 3-refine model
 
 
-if possible,refine model also can sparsity train
+其中包括了BN层与卷积层融合,TensorRT加速,显示模型的FLOPs和Parameters
