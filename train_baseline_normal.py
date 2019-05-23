@@ -185,7 +185,7 @@ def train(
             loss.backward()
 
             # Sparsity L1 loss
-            updateBN(model, 0.00001)
+            updateBN(model, 0.0001)
 
             # 累积批次
             accumulated_batches = 4  # accumulate gradient for 4 batches before optimizing
@@ -288,7 +288,7 @@ if __name__ == '__main__':
     parser.add_argument('--var', type=float, default=0, help='optional test variable')
     parser.add_argument('--s', type=float, default=0.00001, help='sparity')
 
-    parser.add_argument('--cfg', type=str, default='normal_prune_cfg/prune_0.5_yolov3.cfg', help='cfg file path')
+    parser.add_argument('--cfg', type=str, default='sparsity_2_prune_cfg/prune_0.5_yolov3.cfg', help='cfg file path')
     parser.add_argument('--weights-path', type=str, default='normal_prune_weights/prune_0.5_normal.weights',
                         help='path to store weights')
     opt = parser.parse_args()

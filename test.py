@@ -35,13 +35,19 @@ def test(
     # Initiate model
     model = Darknet(net_config_path, img_size)
 
-    # Load weights
+    # # Load weights
     if weights_file_path.endswith('.pt'):  # pytorch format
         checkpoint = torch.load(weights_file_path, map_location='cpu')
+        print(checkpoint)
         model.load_state_dict(checkpoint['model'])
         del checkpoint
     else:  # darknet format
         model.load_weights(weights_file_path)
+
+    # model.load_weights(weights_file_path)
+    # checkpoint = torch.load(weights_file_path, map_location='cpu')
+    # model.load_state_dict(checkpoint['model'])
+    # del checkpoint
 
     flops, params = profile(model, input_size=(1, 3, 416, 416))
     print(flops,params)
@@ -138,10 +144,10 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=8, help='size of each image batch')
     parser.add_argument('--cfg', type=str, default='./cfg/yolov3.cfg', help='path to model config file')
     parser.add_argument('--data-config', type=str, default='cfg/coco.data', help='path to data config file')
-    parser.add_argument('--weights', type=str, default='./weights/yolov3_sparsity_63.weights',
+    parser.add_argument('--weights', type=str, default='./weights/latest.pt',
                         help='path to weights file')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='iou threshold required to qualify as detected')
-    parser.add_argument('--conf-thres', type=float, default=0.3, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--nms-thres', type=float, default=0.45, help='iou threshold for non-maximum suppression')
     parser.add_argument('--n-cpus', type=int, default=4, help='number of cpu threads to use during batch generation')
     parser.add_argument('--img-size', type=int, default=416, help='size of each image dimension')
@@ -168,7 +174,6 @@ if __name__ == '__main__':
         n_cpus=opt.n_cpus,
         device=opt.device
     )
-    detect
     print(mAP)
     print(R)
     print(P)

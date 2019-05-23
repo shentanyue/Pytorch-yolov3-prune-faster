@@ -10,8 +10,8 @@ def arg_parse():
     parser.add_argument("--cfg", dest="cfgfile", help="网络模型",
                         default='./cfg/yolov3.cfg', type=str)
     parser.add_argument("--weights", dest="weightsfile", help="权重文件",
-                        default='/data_1/shenty/model/sparsity2.weights', type=str)
-    parser.add_argument('--percent', type=float, default=0.3, help='剪枝的比例')
+                        default='/data_1/shenty/model/sparsity.weights', type=str)
+    parser.add_argument('--percent', type=float, default=0.1, help='剪枝的比例')
     return parser.parse_args()
 
 
@@ -26,8 +26,9 @@ model = Darknet(args.cfgfile)
 print("done!")
 print("load weightsfile")
 
-# best_weights_file = './weights/latest.weights'
+# best_weights_file = '/data_1/shenty/model/sparsity.weights'
 # checkpoint = torch.load(best_weights_file, map_location='cpu')
+# # print(checkpoint)
 # model.load_state_dict(checkpoint['model'])
 
 model.load_weights(args.weightsfile)
@@ -222,6 +223,10 @@ prunedweights = os.path.join("prune_{}_".format(args.percent) + args.weightsfile
 print('save weights file in %s' % prunedweights)
 if not os.path.exists('sparsity_2_prune_weights'):
     os.mkdir('sparsity_2_prune_weights')
+# print(newmodel)
+# print(newmodel.state_dict())
+checkpoint = {'model': newmodel.state_dict()}
+# torch.save(checkpoint,'sparsity_2_prune_weights/'+prunedweights)
 newmodel.save_weights('sparsity_2_prune_weights/'+prunedweights)
 
 net_config_path = './sparsity_2_prune_cfg/prune_{}_yolov3.cfg'.format(args.percent)
@@ -235,18 +240,18 @@ mAP, R, P = test.test(
     img_size=416,
     conf_thres=0.25
 )
-detect.detect(
-    net_config_path,
-    data_config_path,
-    latest_weights_file,
-    images_path='./data/samples',
-    output='output',
-    batch_size=1,
-    img_size=32*13,
-    conf_thres=0.25,
-    nms_thres=0.45,
-    save_txt=False,
-    save_images=False
-)
+# detect.detect(
+#     net_config_path,
+#     data_config_path,
+#     latest_weights_file,
+#     images_path='./data/samples',
+#     output='output',
+#     batch_size=1,
+#     img_size=32*13,
+#     conf_thres=0.25,
+#     nms_thres=0.45,
+#     save_txt=False,
+#     save_images=False
+# )
 
 print('done!')

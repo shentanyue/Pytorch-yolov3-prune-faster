@@ -69,8 +69,11 @@ def train(
         torch.backends.cudnn.benchmark = True
 
     # os.makedirs(weights_path, exist_ok=True)
-    latest_weights_file = os.path.join(weights_path, 'latest.pt')
-    best_weights_file = os.path.join(weights_path, 'best.pt')
+    new_weights_path = '/data2/shenty/shenty_133/data_1/shenty/model/prune_sparsity_2/1'
+    latest_weights_file = os.path.join(new_weights_path, 'latest.pt')
+    best_weights_file = os.path.join(new_weights_path, 'best.pt')
+    # latest_weights_file = os.path.join(weights_path, 'latest.pt')
+    # best_weights_file = os.path.join(weights_path, 'best.pt')
 
     # Configure run
     data_config = parse_config.parse_data_config(data_config_path)
@@ -116,14 +119,14 @@ def train(
         best_loss = float('inf')
 
         # Initialize model with darknet53 weights(optional)
-        def_weight_file = os.path.join(weights_path, DARKNET_WEIGHTS_FILENAME)
-        if not os.path.isfile(def_weight_file):
-            os.system('wget {} -P {}'.format(
-                DARKNET_WEIGHTS_URL,
-                weights_path))
-        assert os.path.isfile(def_weight_file)
+        # def_weight_file = os.path.join(weights_path, DARKNET_WEIGHTS_FILENAME)
+        # if not os.path.isfile(def_weight_file):
+        #     os.system('wget {} -P {}'.format(
+        #         DARKNET_WEIGHTS_URL,
+        #         weights_path))
+        # assert os.path.isfile(def_weight_file)
 
-        # def_weight_file = weights_path
+        def_weight_file = weights_path
 
         model.load_weights(def_weight_file)
 
@@ -140,12 +143,12 @@ def train(
         print(('%8s%12s' + '%10s' * 14) % ('Epoch', 'Batch', 'x', 'y', 'w', 'h', 'conf', 'cls', 'total', 'P', 'R',
                                            'nTargets', 'TP', 'FP', 'FN', 'time'))
 
-        if epoch > 40:
+        if epoch > 9:
             lr = lr0 / 10
         else:
             lr = lr0
 
-        if epoch > 80:
+        if epoch > 17:
             lr = lr / 5
         else:
             lr = lr
@@ -183,7 +186,7 @@ def train(
             loss.backward()
 
             # Sparsity L1 loss
-            updateBN(model, 0.00001)
+            updateBN(model, 0.0001)
 
             # 累积批次
             accumulated_batches = 4  # accumulate gradient for 4 batches before optimizing
@@ -233,8 +236,8 @@ def train(
                       'model': model.state_dict(),
                       'optimizer': optimizer.state_dict()}
         torch.save(checkpoint, latest_weights_file)
-        model.save_weights("/data_1/shenty/yolo_model/%s/yolov3_sparsity_%d.weights" % ('sparsity_weights', epoch))
-        print("save weights in /data_1/shenty/yolo_model/%s/yolov3_sparsity_%d.weights" % ('sparsity_weights', epoch))
+        model.save_weights("/data_1/shenty/model/%s/1/yolov3_sparsity_%d.weights" % ('prune_sparsity_2', epoch))
+        print("save weights in /data_1/shenty/model/%s/1/yolov3_sparsity_%d.weights" % ('prune_sparsity_2', epoch))
         # Save best checkpoint
 
         # Save best checkpoint
@@ -275,7 +278,7 @@ def train(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=20, help='number of epochs')
     parser.add_argument('--batch-size', type=int, default=16, help='size of each image batch')
     parser.add_argument('--data-config', type=str, default='cfg/coco.data', help='path to data config file')
     parser.add_argument('--multi-scale', action='store_true', help='random image sizes per batch 320 - 608')
@@ -286,8 +289,8 @@ if __name__ == '__main__':
     parser.add_argument('--var', type=float, default=0, help='optional test variable')
     parser.add_argument('--s', type=float, default=0.0001, help='sparity')
 
-    parser.add_argument('--cfg', type=str, default='cfg/yolov3.cfg', help='cfg file path')
-    parser.add_argument('--weights-path', type=str, default='weights',
+    parser.add_argument('--cfg', type=str, default='sparsity_2_prune_cfg/prune_0.1_yolov3.cfg', help='cfg file path')
+    parser.add_argument('--weights-path', type=str, default='sparsity_2_prune_weights/prune_0.1_sparsity.weights',
                         help='path to store weights')
     opt = parser.parse_args()
     print(opt, end='\n\n')
