@@ -497,11 +497,11 @@ class Darknet_new(nn.Module):
 
 SAVE = True
 device = torch.device('cuda')
-net_config_path = 'sparsity_prune_cfg/prune_0.4_yolov3.cfg'
+net_config_path = 'mul_sparsity/yolov3_5.cfg'
 img_size = 416
 # new_weights_path = '/data_1/shenty/yolo_model/sparsity_weights/'
 # best_weights_file = os.path.join(new_weights_path, 'yolov3_sparsity_20.weights')
-new_weights_path = '/data_1/shenty/model/prune_sparsity/4'
+new_weights_path = 'mul_sparsity/yolov3_5.weights'
 best_weights_file = os.path.join(new_weights_path, 'best.pt')
 
 # Initialize model

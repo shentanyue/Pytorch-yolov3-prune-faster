@@ -8,9 +8,9 @@ import detect
 def arg_parse():
     parser = argparse.ArgumentParser(description="YOLO v3 Prune")
     parser.add_argument("--cfg", dest="cfgfile", help="网络模型",
-                        default='./cfg/yolov3.cfg', type=str)
+                        default='./mul_sparsity/yolov3_2.cfg', type=str)
     parser.add_argument("--weights", dest="weightsfile", help="权重文件",
-                        default='/data_1/shenty/model/sparsity.weights', type=str)
+                        default='./mul_sparsity/yolov3_2.weights', type=str)
     parser.add_argument('--percent', type=float, default=0.1, help='剪枝的比例')
     return parser.parse_args()
 
@@ -229,29 +229,29 @@ checkpoint = {'model': newmodel.state_dict()}
 # torch.save(checkpoint,'sparsity_2_prune_weights/'+prunedweights)
 newmodel.save_weights('sparsity_2_prune_weights/'+prunedweights)
 
-net_config_path = './sparsity_2_prune_cfg/prune_{}_yolov3.cfg'.format(args.percent)
+net_config_path = './sparsity_2_prune_cfg/prune_{}_yolov3_2.cfg'.format(args.percent)
 data_config_path = 'cfg/coco.data'
 latest_weights_file = 'sparsity_2_prune_weights/' + prunedweights
-mAP, R, P = test.test(
-    net_config_path,
-    data_config_path,
-    latest_weights_file,
-    batch_size=16,
-    img_size=416,
-    conf_thres=0.25
-)
-# detect.detect(
+# mAP, R, P = test.test(
 #     net_config_path,
 #     data_config_path,
 #     latest_weights_file,
-#     images_path='./data/samples',
-#     output='output',
-#     batch_size=1,
-#     img_size=32*13,
-#     conf_thres=0.25,
-#     nms_thres=0.45,
-#     save_txt=False,
-#     save_images=False
+#     batch_size=16,
+#     img_size=416,
+#     conf_thres=0.25
 # )
+detect.detect(
+    net_config_path,
+    data_config_path,
+    latest_weights_file,
+    images_path='./data/samples',
+    output='output',
+    batch_size=1,
+    img_size=32*13,
+    conf_thres=0.25,
+    nms_thres=0.45,
+    save_txt=False,
+    save_images=False
+)
 
 print('done!')

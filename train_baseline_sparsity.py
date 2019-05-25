@@ -69,7 +69,7 @@ def train(
         torch.backends.cudnn.benchmark = True
 
     # os.makedirs(weights_path, exist_ok=True)
-    new_weights_path = '/data2/shenty/shenty_133/data_1/shenty/model/prune_sparsity_2/1'
+    new_weights_path = '/data2/shenty/shenty_133/data_1/shenty/model/prune_sparsity_2/5'
     latest_weights_file = os.path.join(new_weights_path, 'latest.pt')
     best_weights_file = os.path.join(new_weights_path, 'best.pt')
     # latest_weights_file = os.path.join(weights_path, 'latest.pt')
@@ -236,8 +236,8 @@ def train(
                       'model': model.state_dict(),
                       'optimizer': optimizer.state_dict()}
         torch.save(checkpoint, latest_weights_file)
-        model.save_weights("/data_1/shenty/model/%s/1/yolov3_sparsity_%d.weights" % ('prune_sparsity_2', epoch))
-        print("save weights in /data_1/shenty/model/%s/1/yolov3_sparsity_%d.weights" % ('prune_sparsity_2', epoch))
+        model.save_weights("/data_1/shenty/model/%s/5/yolov3_sparsity_%d.weights" % ('prune_sparsity_2', epoch))
+        print("save weights in /data_1/shenty/model/%s/5/yolov3_sparsity_%d.weights" % ('prune_sparsity_2', epoch))
         # Save best checkpoint
 
         # Save best checkpoint
@@ -268,7 +268,7 @@ def train(
         )
 
         # Write epoch results
-        with open('results_sparsity.txt', 'a') as file:
+        with open('results_sparsity_5.txt', 'a') as file:
             file.write(s + '%11.3g' * 3 % (mAP, P, R) + '\n')
 
     # Save final model
@@ -289,8 +289,8 @@ if __name__ == '__main__':
     parser.add_argument('--var', type=float, default=0, help='optional test variable')
     parser.add_argument('--s', type=float, default=0.0001, help='sparity')
 
-    parser.add_argument('--cfg', type=str, default='sparsity_2_prune_cfg/prune_0.1_yolov3.cfg', help='cfg file path')
-    parser.add_argument('--weights-path', type=str, default='sparsity_2_prune_weights/prune_0.1_sparsity.weights',
+    parser.add_argument('--cfg', type=str, default='mul_sparsity/yolov3_5.cfg', help='cfg file path')
+    parser.add_argument('--weights-path', type=str, default='mul_sparsity/yolov3_5.weights',
                         help='path to store weights')
     opt = parser.parse_args()
     print(opt, end='\n\n')

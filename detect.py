@@ -64,7 +64,7 @@ def detect(
     total_time = 0
     for i in range(30):
         for i, (img_paths, img) in enumerate(dataloader):
-            print('%g/%g' % (i + 1, len(dataloader)), end=' ')
+            # print('%g/%g' % (i + 1, len(dataloader)), end=' ')
             prev_time = time.time()
             # Get detections
             with torch.no_grad():
@@ -75,7 +75,7 @@ def detect(
                     detections = non_max_suppression(pred.unsqueeze(0), conf_thres, nms_thres)
                     img_detections.extend(detections)
                     imgs.extend(img_paths)
-            print('Batch %d... Done. (%.3fs)' % (i, time.time() - prev_time))
+            # print('Batch %d... Done. (%.3fs)' % (i, time.time() - prev_time))
             total_time = (time.time() - prev_time) + total_time
             # print('Batch %d... Done. (%.3fs)' % (i, time.time() - prev_time))
 
